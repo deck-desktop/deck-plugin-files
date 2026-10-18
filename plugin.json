@@ -1,0 +1,9 @@
+{
+  "id": "files",
+  "name": "Files",
+  "description": "A file explorer: your drives, pinned folders and servers, with tabs, a preview pane, search by name and inside files, and copy, move, rename and the Recycle Bin.",
+  "icon": "FolderOpen",
+  "color": "#60a5fa",
+  "version": "0.1.0",
+  "minDeck": "1.6.1"
+}

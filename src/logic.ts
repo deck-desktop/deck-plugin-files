@@ -1,0 +1,182 @@
+// What the explorer works out without touching Deck: paths (on this PC and on a server), the
+// breadcrumb, sorting, the labels in each column, and what a copy will run into. Pure, so
+// files.check.mjs runs it in node.
+
+/** One entry of a folder, as Deck lists it. */
+export interface Entry { name: string; path: string; dir: boolean; mtimeMs: number; size: number; hidden: boolean }
+
+// ---- paths -------------------------------------------------------------------------------------
+//
+// A path here is a Windows one (`C:\Users\Hasan`, a share `\\server\share\x`) or a server folder
+// as Deck writes it, `host:/srv/x` (`host+sudo:/…` for root). A host is at least two characters,
+// so `D:/x` is never taken for one: the same rule as Deck's remotepath.ts.
+
+const REMOTE = /^([A-Za-z0-9._@-]{2,})(\+sudo)?:(\/.*)$/;
+export const isRemote = (p: string) => REMOTE.test(p);
+
+/** The folder holding `p`, or null at a top: a drive, a share, a server's `/`. */
+export function parentOf(p: string): string | null {
+  const r = REMOTE.exec(p);
+  if (r) {
+    const path = r[3].replace(/\/+$/, "");
+    if (!path) return null;
+    const up = path.slice(0, path.lastIndexOf("/")) || "/";
+    return `${r[1]}${r[2] ?? ""}:${up}`;
+  }
+  const w = p.replace(/\//g, "\\").replace(/\\+$/, "");
+  if (/^[A-Za-z]:$/.test(w)) return null;
+  const share = /^\\\\[^\\]+\\[^\\]+$/.test(w);
+  if (share) return null;
+  const at = w.lastIndexOf("\\");
+  if (at < 0) return null;
+  const up = w.slice(0, at);
+  return /^[A-Za-z]:$/.test(up) ? up + "\\" : up;
+}
+
+/** `name` inside folder `dir`. */
+export function joinPath(dir: string, name: string): string {
+  if (isRemote(dir)) return dir.endsWith("/") ? dir + name : `${dir}/${name}`;
+  return dir.endsWith("\\") || dir.endsWith("/") ? dir + name : `${dir}\\${name}`;
+}
+
+/** The last part of a path, for a title. A drive is `C:`, a server's root its host. */
+export function baseName(p: string): string {
+  const r = REMOTE.exec(p);
+  if (r) return r[3].replace(/\/+$/, "").split("/").pop() || r[1];
+  const w = p.replace(/\//g, "\\").replace(/\\+$/, "");
+  return w.split("\\").pop() || w;
+}
+
+/** The breadcrumb: each folder from the top down, with the path it opens. */
+export function crumbs(p: string): { label: string; path: string }[] {
+  const out: { label: string; path: string }[] = [];
+  for (let cur: string | null = p; cur; cur = parentOf(cur)) out.unshift({ label: crumbLabel(cur), path: cur });
+  return out;
+}
+function crumbLabel(p: string): string {
+  const r = REMOTE.exec(p);
+  if (r && r[3].replace(/\/+$/, "") === "") return r[1];
+  const b = baseName(p);
+  return b;
+}
+
+/** A path for comparing: one file however its path was spelled (slashes, case on Windows). */
+export const samePath = (a: string, b: string) => key(a) === key(b);
+const key = (p: string) => (isRemote(p) ? p.replace(/\/+$/, "") : p.replace(/\//g, "\\").replace(/\\+$/, "").toLowerCase());
+
+// ---- sorting -----------------------------------------------------------------------------------
+
+export type SortKey = "name" | "date" | "type" | "size";
+const collator = new Intl.Collator(undefined, { numeric: true, sensitivity: "base" });
+
+/** Folders first, then files; within each, by `by` (`asc` false reverses), name breaking ties. */
+export function sortEntries(list: Entry[], by: SortKey, asc: boolean): Entry[] {
+  const dir = asc ? 1 : -1;
+  const cmp = (a: Entry, b: Entry) => {
+    if (a.dir !== b.dir) return a.dir ? -1 : 1;
+    let c = 0;
+    if (by === "date") c = a.mtimeMs - b.mtimeMs;
+    else if (by === "size") c = a.size - b.size;
+    else if (by === "type") c = collator.compare(typeLabel(a), typeLabel(b));
+    return (c || collator.compare(a.name, b.name)) * dir;
+  };
+  return [...list].sort(cmp);
+}
+
+// ---- labels ------------------------------------------------------------------------------------
+
+/** A name's extension, lowercased without the dot, or "" for none (a dotfile's name alone has none). */
+export function extOf(name: string): string {
+  const at = name.lastIndexOf(".");
+  return at > 0 ? name.slice(at + 1).toLowerCase() : "";
+}
+
+const TYPES: Record<string, string> = {
+  md: "Markdown", txt: "Text", json: "JSON", yaml: "YAML", yml: "YAML", toml: "TOML", xml: "XML", csv: "CSV",
+  ts: "TypeScript", tsx: "TypeScript", js: "JavaScript", jsx: "JavaScript", mjs: "JavaScript", cjs: "JavaScript",
+  rs: "Rust", dart: "Dart", py: "Python", go: "Go", java: "Java", kt: "Kotlin", cs: "C#", cpp: "C++", c: "C", h: "C header",
+  html: "HTML", htm: "HTML", css: "CSS", scss: "SCSS", sql: "SQL", sh: "Shell script", ps1: "PowerShell", bat: "Batch", cmd: "Batch",
+  png: "PNG image", jpg: "JPEG image", jpeg: "JPEG image", gif: "GIF image", webp: "WebP image", svg: "SVG image", ico: "Icon", bmp: "Bitmap",
+  mp4: "MP4 video", mov: "QuickTime video", mkv: "Matroska video", webm: "WebM video", mp3: "MP3 audio", wav: "WAV audio", flac: "FLAC audio", m4a: "M4A audio",
+  pdf: "PDF document", doc: "Word document", docx: "Word document", xls: "Excel sheet", xlsx: "Excel sheet", ppt: "PowerPoint", pptx: "PowerPoint",
+  zip: "ZIP archive", "7z": "7-Zip archive", rar: "RAR archive", gz: "Gzip archive", tar: "Tar archive",
+  exe: "Application", msi: "Installer", dll: "Library", lnk: "Shortcut", ttf: "Font", otf: "Font", woff: "Font", woff2: "Font",
+};
+
+/** The Type column: "Folder", a known kind, or "XYZ file". */
+export function typeLabel(e: Pick<Entry, "name" | "dir">): string {
+  if (e.dir) return "Folder";
+  const ext = extOf(e.name);
+  return TYPES[ext] ?? (ext ? `${ext.toUpperCase()} file` : "File");
+}
+
+/** Bytes as Explorer's Size column has them: whole KB rounded up below a megabyte, then MB, GB. */
+export function sizeLabel(bytes: number): string {
+  if (bytes < 1024 * 1024) return `${Math.max(bytes ? 1 : 0, Math.ceil(bytes / 1024)).toLocaleString("en")} KB`;
+  const units = ["MB", "GB", "TB"];
+  let v = bytes / (1024 * 1024), i = 0;
+  while (v >= 1024 && i < units.length - 1) { v /= 1024; i++; }
+  return `${v < 10 ? v.toFixed(1) : Math.round(v).toLocaleString("en")} ${units[i]}`;
+}
+
+/** Free space for the sidebar: "88 GB free". */
+export const freeLabel = (bytes: number) => `${sizeLabel(bytes)} free`;
+
+/** What the preview pane can show. */
+export type PreviewKind = "image" | "text" | "media" | "pdf" | "none";
+const TEXT = new Set(["md", "txt", "json", "yaml", "yml", "toml", "xml", "csv", "ts", "tsx", "js", "jsx", "mjs", "cjs", "rs", "dart",
+  "py", "go", "java", "kt", "cs", "cpp", "c", "h", "html", "htm", "css", "scss", "sql", "sh", "ps1", "bat", "cmd", "ini", "cfg", "log", "env", "gitignore"]);
+const IMAGES = new Set(["png", "jpg", "jpeg", "gif", "webp", "bmp", "ico", "svg"]);
+const MEDIA = new Set(["mp4", "mov", "mkv", "webm", "mp3", "wav", "flac", "m4a", "ogg"]);
+export function previewKind(name: string): PreviewKind {
+  const ext = extOf(name) || name.toLowerCase().replace(/^\./, "");
+  if (IMAGES.has(ext)) return "image";
+  if (MEDIA.has(ext)) return "media";
+  if (ext === "pdf") return "pdf";
+  if (TEXT.has(ext)) return "text";
+  return "none";
+}
+
+// ---- copying -----------------------------------------------------------------------------------
+
+/** A name already in the folder being copied into, and whether it is a folder (which cannot be
+ *  replaced, only skipped or kept beside: a copy cannot merge two folders). */
+export interface Clash { source: string; name: string; folder: boolean }
+
+/** Which of `sources` would land on a name `dest` already has. */
+export function clashes(sources: { path: string; dir: boolean }[], dest: Entry[]): Clash[] {
+  const taken = new Map(dest.map((d) => [d.name.toLowerCase(), d]));
+  return sources.flatMap((s) => {
+    const name = baseName(s.path);
+    const there = taken.get(name.toLowerCase());
+    return there ? [{ source: s.path, name, folder: s.dir || there.dir }] : [];
+  });
+}
+
+/** Whether `dest` is `src` itself or inside it: a folder cannot be copied or moved into itself. */
+export function insideItself(src: string, dest: string): boolean {
+  return samePath(src, dest) || key(dest).startsWith(key(src) + (isRemote(src) ? "/" : "\\"));
+}
+
+/** A search's name matches: every word, anywhere in the name, case ignored. */
+/**
+ * Type to select, as Explorer does: the index to move to for what has been typed so far, or -1.
+ * One letter (or the same letter again and again) moves on to the next name starting with it,
+ * wrapping round; a longer prefix stays on the current name while it still matches.
+ */
+export function typeAhead(names: readonly string[], at: number, typed: string): number {
+  const t = typed.toLowerCase();
+  const same = [...t].every((c) => c === t[0]);
+  const want = same ? t[0] : t;
+  const start = same ? at + 1 : Math.max(at, 0);
+  for (let k = 0; k < names.length; k++) {
+    const i = (start + k) % names.length;
+    if (names[i].toLowerCase().startsWith(want)) return i;
+  }
+  return -1;
+}
+
+export function nameMatches(name: string, query: string): boolean {
+  const n = name.toLowerCase();
+  return query.toLowerCase().split(/\s+/).filter(Boolean).every((w) => n.includes(w));
+}
