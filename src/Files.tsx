@@ -255,7 +255,9 @@ function Explorer({ tab }: { tab: Tab }) {
 
   // ---- keys -----------------------------------------------------------------------------------
 
-  const inBody = () => !!body.current?.contains(document.activeElement) && !renaming && document.activeElement?.tagName !== "INPUT";
+  // The focused element of the document the view is in: Deck's main window's, or a floating window's.
+  const focused = () => body.current?.ownerDocument.activeElement ?? null;
+  const inBody = () => !!body.current?.contains(focused()) && !renaming && focused()?.tagName !== "INPUT";
   const latest = useRef<Record<string, () => void>>({});
   latest.current = {
     open: () => { const e = entries.find((x) => x.path === focus); if (e) openEntry(e); },
@@ -270,11 +272,11 @@ function Explorer({ tab }: { tab: Tab }) {
     "new-folder": () => newItem(true),
     refresh: () => void relist(cwd),
     back, forward, up,
-    search: () => (document.getElementById(`files-search-${tab.id}`) as HTMLInputElement | null)?.focus(),
+    search: () => ((body.current?.ownerDocument ?? document).getElementById(`files-search-${tab.id}`) as HTMLInputElement | null)?.focus(),
   };
   useEffect(() => {
     const k = (id: string, when: () => boolean = inBody) => ({ [`plugin:files:${id}`]: { when, run: () => latest.current[id]() } });
-    const always = () => !!body.current?.closest("[data-files]")?.contains(document.activeElement) || inBody();
+    const always = () => !!body.current?.closest("[data-files]")?.contains(focused()) || inBody();
     return onKeys({
       ...k("rename"), ...k("delete"), ...k("delete-forever"), ...k("copy"), ...k("cut"), ...k("paste"), ...k("select-all"),
       ...k("copy-path"), ...k("new-folder", always), ...k("refresh", always), ...k("back", always), ...k("forward", always),
