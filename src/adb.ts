@@ -26,6 +26,8 @@ async function run(args: string[]): Promise<string> {
   return r.stdout;
 }
 function explain(err: string): string {
+  const taken = /run-as: (.+) is already there/.exec(err);
+  if (taken) return `${taken[1]} is already there`;
   const m = /run-as: package not debuggable: (\S+)/.exec(err);
   if (m) return `${m[1]} is not a debug build: Android only lets adb read the files of an app that is debuggable.`;
   if (/is unknown|not found/i.test(err)) return "That app is not on the phone any more.";
@@ -58,6 +60,40 @@ export async function adbPush(paths: string[], into: string): Promise<void> {
       await fsDelete(local).catch(() => { /* not packed */ });
     }
   }
+}
+
+/** The app and the place on the phone of an adb path inside an app. */
+function inApp(path: string) {
+  const p = adbParts(path);
+  if (!p?.pkg || !p.rel) throw new Error("Only what is inside an app's folder can be changed");
+  return { ...p, abs: adbAbs(p.pkg, p.rel) };
+}
+
+/** Rename, refused when the new name is taken (mv would replace it). Returns the new path. */
+export async function adbRename(path: string, name: string): Promise<string> {
+  if (/[/\\]/.test(name)) throw new Error("A name cannot hold a slash");
+  const p = inApp(path);
+  const to = `${p.abs.slice(0, p.abs.lastIndexOf("/"))}/${name}`;
+  await run(["-s", p.serial, "shell", `run-as ${p.pkg} sh -c '[ -e ${q(to)} ] && { echo "run-as: ${name} is already there" >&2; exit 3; }; mv ${q(p.abs)} ${q(to)}'`]);
+  return `${path.slice(0, path.lastIndexOf("/"))}/${name}`;
+}
+
+/** Delete for good, folders with what is in them: an app's folder has no Recycle Bin. Ask first. */
+export async function adbDelete(paths: string[]): Promise<void> {
+  const ps = paths.map(inApp);
+  const { serial, pkg } = ps[0];
+  if (ps.some((p) => p.serial !== serial || p.pkg !== pkg)) throw new Error("Delete from one app at a time");
+  await run(["-s", serial, "shell", `run-as ${pkg} rm -rf ${ps.map((p) => q(p.abs)).join(" ")}`]);
+}
+
+/** A new empty folder or file in an app's folder `dir`, refused when the name is taken. Returns its path. */
+export async function adbCreate(dir: string, name: string, folder: boolean): Promise<string> {
+  if (/[/\\]/.test(name)) throw new Error("A name cannot hold a slash");
+  const p = adbParts(dir);
+  if (!p?.pkg) throw new Error("Only an app's folder can hold something new");
+  const at = `${adbAbs(p.pkg, p.rel)}/${name}`;
+  await run(["-s", p.serial, "shell", `run-as ${p.pkg} sh -c '[ -e ${q(at)} ] && { echo "run-as: ${name} is already there" >&2; exit 3; }; ${folder ? "mkdir" : "touch"} ${q(at)}'`]);
+  return `${dir.replace(/\/+$/, "")}/${name}`;
 }
 
 /** One shell argument for the phone's sh, in double quotes. */

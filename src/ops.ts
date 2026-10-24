@@ -10,7 +10,7 @@
 import { useSyncExternalStore } from "react";
 import { dataDir, fsCopy, fsCreateDir, fsCreateFile, fsDelete, fsList, fsMove, fsRename, fsTrash, shellDelete, shellNewFolder, shellRename, shellTransfer } from "../shim/bridge.js";
 import { baseName, clashes, insideItself, isAdb, isDevice, isRemote, joinPath, keptName, offPc, parentOf, type Clash, type Entry } from "./logic";
-import { adbList, adbPull, adbPush } from "./adb";
+import { adbCreate, adbDelete, adbList, adbPull, adbPush, adbRename } from "./adb";
 import { relist } from "./folders";
 
 // ---- the clipboard -----------------------------------------------------------------------------
@@ -213,16 +213,17 @@ export async function fromPhone(e: { path: string; name: string }): Promise<stri
 /** Into the Recycle Bin (on this PC), or deleted for good (on a server, which has none). */
 export async function remove(paths: string[], forever: boolean): Promise<void> {
   // A phone has no Recycle Bin: for good, and asked about first (Files.tsx).
-  if (paths.some(isAdb)) throw new Error("Deleting an app's files is not possible yet.");
+  // An app's files over adb, and a phone's over USB: for good, and asked about first (Files.tsx).
+  const app = paths.filter(isAdb);
+  if (app.length) await adbDelete(app);
   const phone = paths.filter(isDevice);
   if (phone.length) await shellDelete(phone);
-  for (const p of paths.filter((x) => !isDevice(x))) await (forever || isRemote(p) ? fsDelete(p) : fsTrash(p));
+  for (const p of paths.filter((x) => !isDevice(x) && !isAdb(x))) await (forever || isRemote(p) ? fsDelete(p) : fsTrash(p));
   await Promise.all([...new Set(paths.map((p) => parentOf(p) ?? ""))].filter(Boolean).map(relist));
 }
 
 export async function rename(path: string, name: string): Promise<string> {
-  if (isAdb(path)) throw new Error("Renaming an app's files is not possible yet.");
-  const to = isDevice(path) ? (await shellRename(path, name), path) : await fsRename(path, name);
+  const to = isAdb(path) ? await adbRename(path, name) : isDevice(path) ? (await shellRename(path, name), path) : await fsRename(path, name);
   const dir = parentOf(path);
   if (dir) await relist(dir);
   return to;
@@ -230,7 +231,7 @@ export async function rename(path: string, name: string): Promise<string> {
 
 /** A new folder or empty file in `dir`, named `name`. Returns its path. */
 export async function create(dir: string, name: string, folder: boolean): Promise<string> {
-  if (isAdb(dir)) throw new Error("Making something in an app's folder is not possible yet.");
+  if (isAdb(dir)) { const at = await adbCreate(dir, name, folder); await relist(dir); return at; }
   if (isDevice(dir) && !folder) throw new Error("A new file cannot be made on a phone: make it on this PC and copy it over.");
   const at = isDevice(dir) ? (await shellNewFolder(dir, name), "") : await (folder ? fsCreateDir(dir, name) : fsCreateFile(dir, name));
   await relist(dir);

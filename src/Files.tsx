@@ -176,7 +176,7 @@ function Explorer({ tab }: { tab: Tab }) {
   const pasteHere = (into = cwd) => run("Pasting failed", async () => { const n = await paste(into, ask); if (n) toast(`${n} item${n === 1 ? "" : "s"} pasted`, "success"); });
   const trash = (list: Entry[], forever = false) => {
     if (!list.length) return;
-    const remote = isRemote(list[0].path) || isDevice(list[0].path);
+    const remote = isRemote(list[0].path) || isDevice(list[0].path) || isAdb(list[0].path);
     const what = list.length === 1 ? list[0].name : `${list.length} items`;
     const doIt = () => run("Deleting failed", async () => {
       await remove(list.map((e) => e.path), forever);
@@ -185,7 +185,8 @@ function Explorer({ tab }: { tab: Tab }) {
     });
     if (forever || remote) setConfirm({
       title: `Delete ${what} for good?`,
-      body: isDevice(list[0].path) ? "A phone has no Recycle Bin: this cannot be undone."
+      body: isAdb(list[0].path) ? "An app's folder has no Recycle Bin: this cannot be undone. Close the app first if it is running."
+        : isDevice(list[0].path) ? "A phone has no Recycle Bin: this cannot be undone."
         : remote ? "A server has no Recycle Bin: this cannot be undone." : "It skips the Recycle Bin, so it cannot be undone.",
       confirmLabel: "Delete", onConfirm: doIt,
     });
