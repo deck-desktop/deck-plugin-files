@@ -11,7 +11,7 @@ import { useSyncExternalStore } from "react";
 import { dataDir, fsCopy, fsCreateDir, fsCreateFile, fsDelete, fsList, fsMove, fsRename, fsTrash, shellDelete, shellNewFolder, shellRename, shellTransfer } from "../shim/bridge.js";
 import { baseName, clashes, insideItself, isAdb, isDevice, isRemote, joinPath, keptName, offPc, parentOf, type Clash, type Entry } from "./logic";
 import { adbCreate, adbDelete, adbList, adbPull, adbPush, adbRename } from "./adb";
-import { relist } from "./folders";
+import { listedPath, relist } from "./folders";
 
 // ---- the clipboard -----------------------------------------------------------------------------
 
@@ -223,10 +223,11 @@ export async function remove(paths: string[], forever: boolean): Promise<void> {
 }
 
 export async function rename(path: string, name: string): Promise<string> {
-  const to = isAdb(path) ? await adbRename(path, name) : isDevice(path) ? (await shellRename(path, name), path) : await fsRename(path, name);
+  const to = isAdb(path) ? await adbRename(path, name) : isDevice(path) ? (await shellRename(path, name), "") : await fsRename(path, name);
   const dir = parentOf(path);
   if (dir) await relist(dir);
-  return to;
+  // A phone's path is the shell's parsing name, which the rename changed: found again by its name.
+  return to || (dir && listedPath(dir, name)) || path;
 }
 
 /** A new folder or empty file in `dir`, named `name`. Returns its path. */
@@ -235,5 +236,5 @@ export async function create(dir: string, name: string, folder: boolean): Promis
   if (isDevice(dir) && !folder) throw new Error("A new file cannot be made on a phone: make it on this PC and copy it over.");
   const at = isDevice(dir) ? (await shellNewFolder(dir, name), "") : await (folder ? fsCreateDir(dir, name) : fsCreateFile(dir, name));
   await relist(dir);
-  return at;
+  return at || listedPath(dir, name) || "";
 }

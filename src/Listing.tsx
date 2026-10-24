@@ -136,7 +136,14 @@ function RenameBox({ e, onRename }: { e: Entry; onRename: (e: Entry, name: strin
     const dot = e.dir ? -1 : e.name.lastIndexOf(".");
     i.setSelectionRange(0, dot > 0 ? dot : e.name.length);
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
-  const done = (name: string | null) => onRename(e, name === null || name.trim() === "" || name === e.name ? null : name.trim());
+  // Once only: Enter moves focus back to the listing, and the blur that follows would rename a
+  // second time, which on a phone asks to merge the renamed folder into itself.
+  const ended = useRef(false);
+  const done = (name: string | null) => {
+    if (ended.current) return;
+    ended.current = true;
+    onRename(e, name === null || name.trim() === "" || name === e.name ? null : name.trim());
+  };
   return (
     <input ref={ref} defaultValue={e.name} aria-label={`Rename ${e.name}`}
       onClick={(ev) => ev.stopPropagation()} onDoubleClick={(ev) => ev.stopPropagation()}
