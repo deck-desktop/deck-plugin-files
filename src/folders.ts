@@ -29,6 +29,9 @@ const notify = () => subs.forEach((f) => f());
 const same = (a: Entry[], b: Entry[]) => a.length === b.length
   && a.every((x, i) => x.path === b[i].path && x.mtimeMs === b[i].mtimeMs && x.size === b[i].size && x.hidden === b[i].hidden);
 
+/** The entry named `name` in `dir` as last listed, for a phone, whose paths a rename changes. */
+export const listedPath = (dir: string, name: string) => listings.get(dir)?.entries.find((e) => e.name === name)?.path;
+
 /** List `dir` now. The build folders (node_modules and the rest) are included: this is a file manager. */
 export async function relist(dir: string): Promise<void> {
   try {
