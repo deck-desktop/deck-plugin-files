@@ -6,8 +6,8 @@
 // browser, code in the Editor), and anything Deck has nothing for opens in Windows' own app.
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  ArrowLeft, ArrowRight, ArrowUp, Check, Columns2, FilePlus, FolderOpen, FolderPlus, LayoutGrid, List,
-  MoreHorizontal, PanelRight, Plus, RefreshCw, Search as SearchIcon, X,
+  ArrowLeft, ArrowRight, ArrowUp, ArrowUpDown, Check, ChevronDown, Columns2, FilePlus, FolderOpen, FolderPlus, LayoutGrid, List,
+  PanelRight, Plus, RefreshCw, Search as SearchIcon, X,
 } from "lucide-react";
 import { fsOpen, fsReveal, fsList } from "../shim/bridge.js";
 import {
@@ -25,6 +25,8 @@ import { Sidebar } from "./Sidebar";
 import { getState, loadState, newTab, update, updateTab, useFilesState, type Tab } from "./store";
 import { DROP, DragBadge, TABS, setDropHost } from "./drag";
 
+/** The toolbar's Sort and View: a word with an arrow, opening a menu, as Explorer's are. */
+const menuButton = "flex h-8 shrink-0 items-center gap-1.5 rounded-lg px-2.5 text-[12.5px] text-text-secondary transition-colors hover:bg-white/5 hover:text-text-primary";
 const tool = "grid size-8 shrink-0 place-items-center rounded-lg text-text-muted transition-colors hover:bg-white/5 hover:text-text-primary disabled:opacity-35 disabled:hover:bg-transparent";
 
 /** Each tab's back and forward stacks, for as long as the plugin is loaded. */
@@ -247,22 +249,32 @@ function Explorer({ tab }: { tab: Tab }) {
     ];
     setMenu({ x: ev.clientX, y: ev.clientY, items: e ? items : () => { const live = getState(); return items.map((i) => (i !== "sep" && i.checked !== undefined ? { ...i, checked: live.showHidden } : i)); } });
   };
-  const viewMenu = (ev: React.MouseEvent) => {
-    const r = (ev.currentTarget as HTMLElement).getBoundingClientRect();
-    setMenu({ x: r.right, y: r.bottom + 4, items: () => {
-      const live = getState();
-      return [
-        { label: "Show hidden files", checked: live.showHidden, onClick: () => update((st) => ({ showHidden: !st.showHidden })) },
-        { label: "Preview pane", checked: live.preview, onClick: () => update((st) => ({ preview: !st.preview })) },
-        "sep",
-        // One of the four, and choosing one shows the tiles.
-        ...[1, 2, 3, 4].map((n) => ({
-          label: `Tiles: ${["", "small", "medium", "large", "extra large"][n]}`, checked: live.gridSize === n,
-          onClick: () => { update({ gridSize: n }); updateTab(tab.id, { view: "grid" }); },
-        } as MenuEntry)),
-      ];
-    } });
-  };
+  // Explorer's Sort and View menus, under their buttons. The one in use is ticked; a pick closes
+  // the menu, as there. Hidden files, at the end of View, stays open to be flipped.
+  const under = (ev: React.MouseEvent) => { const r = (ev.currentTarget as HTMLElement).getBoundingClientRect(); return { x: r.left, y: r.bottom + 4 }; };
+  const tick = (on: boolean) => (on ? "✓" : undefined);
+  const sortMenu = (ev: React.MouseEvent) => setMenu({ ...under(ev), items: [
+    ...([["name", "Name"], ["date", "Date modified"], ["type", "Type"], ["size", "Size"]] as const).map(([k, label]) => ({
+      label, hint: tick(tab.sort === k), onClick: () => updateTab(tab.id, { sort: k }),
+    } as MenuEntry)),
+    "sep",
+    { label: "Ascending", hint: tick(tab.asc), onClick: () => updateTab(tab.id, { asc: true }) },
+    { label: "Descending", hint: tick(!tab.asc), onClick: () => updateTab(tab.id, { asc: false }) },
+  ] });
+  const viewMenu = (ev: React.MouseEvent) => setMenu({ ...under(ev), items: () => {
+    const live = getState();
+    return [
+      // Biggest first, as Explorer lists them; choosing one shows the tiles.
+      ...[4, 3, 2, 1].map((n) => ({
+        label: `${["", "Small", "Medium", "Large", "Extra large"][n]} icons`, icon: LayoutGrid,
+        hint: tick(tab.view === "grid" && live.gridSize === n),
+        onClick: () => { update({ gridSize: n }); updateTab(tab.id, { view: "grid" }); },
+      } as MenuEntry)),
+      { label: "Details", icon: List, hint: tick(tab.view === "details"), onClick: () => updateTab(tab.id, { view: "details" }) },
+      "sep",
+      { label: "Hidden files", checked: live.showHidden, onClick: () => update((st) => ({ showHidden: !st.showHidden })) },
+    ];
+  } });
 
   // ---- keys -----------------------------------------------------------------------------------
 
@@ -377,18 +389,12 @@ function Explorer({ tab }: { tab: Tab }) {
           {query && <button aria-label="Clear the search" onClick={() => { setQuery(""); setSearched(""); }} className="text-text-muted hover:text-text-primary"><X size={13} /></button>}
         </label>
 
-        <div className="flex shrink-0 gap-0.5 rounded-lg border border-subtle bg-elev p-0.5">
-          {([["details", List, "Details"], ["grid", LayoutGrid, "Tiles"]] as const).map(([v, Icon, title]) => (
-            <button key={v} title={title} aria-label={title} aria-pressed={tab.view === v} onClick={() => updateTab(tab.id, { view: v })}
-              className={"grid h-7 w-8 place-items-center rounded-md transition-colors " + (tab.view === v ? "text-text-primary" : "text-text-muted hover:text-text-primary")}
-              style={tab.view === v ? { background: "var(--accent-soft)" } : undefined}>
-              <Icon size={14} />
-            </button>
-          ))}
-        </div>
+        <button className={menuButton} aria-haspopup="menu" onClick={sortMenu}><ArrowUpDown size={14} />Sort<ChevronDown size={12} className="text-text-muted" /></button>
+        <button className={menuButton} aria-haspopup="menu" onClick={viewMenu}>
+          {tab.view === "grid" ? <LayoutGrid size={14} /> : <List size={14} />}View<ChevronDown size={12} className="text-text-muted" />
+        </button>
         <button className={tool} title="Preview pane" aria-label="Preview pane" aria-pressed={s.preview} onClick={() => update((st) => ({ preview: !st.preview }))}
           style={s.preview ? { color: "var(--text-primary)" } : undefined}><PanelRight size={15} /></button>
-        <button className={tool} title="View options" aria-label="View options" onClick={viewMenu}><MoreHorizontal size={16} /></button>
         <button onClick={(ev) => { const r = ev.currentTarget.getBoundingClientRect(); setMenu({ x: r.left, y: r.bottom + 4, items: [
             { label: "Folder", icon: FolderPlus, hint: "Ctrl+Shift+N", onClick: () => newItem(true) },
             { label: "File", icon: FilePlus, onClick: () => newItem(false) },
