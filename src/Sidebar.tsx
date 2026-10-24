@@ -2,22 +2,44 @@
 // servers in ~/.ssh/config. Drives are read when the sidebar appears and on Refresh, never on a
 // timer: asking a drive for its space is a one-off.
 import { useEffect, useState } from "react";
-import { HardDrive, Plus, RefreshCw, Server, Star, Usb } from "lucide-react";
-import { fsDrives, remoteHome, sshHosts, type Drive } from "../shim/bridge.js";
+import { Bug, HardDrive, Plus, RefreshCw, Server, Smartphone, Star, Usb } from "lucide-react";
+import { fsDrives, remoteHome, shellPlaces, sshHosts, type Drive, type ShellPlace } from "../shim/bridge.js";
+import { nameIt } from "./folders";
+import { adbDevices, type AdbDevice } from "./adb";
 import { ContextMenu, IconButton, type MenuEntry } from "../shim/ui.js";
 import { freeLabel, samePath } from "./logic";
 import { update, type Pin } from "./store";
+import { DROP } from "./drag";
 
 const row = "flex h-7 w-full items-center gap-2 rounded-md px-2 text-left text-[12.5px] transition-colors";
 const head = "px-2 pb-1 text-[11px] font-medium text-text-muted";
 
-export function Sidebar({ cwd, pins, onOpen, fail }: {
-  cwd: string; pins: Pin[]; onOpen: (path: string) => void; fail: (what: string, e: unknown) => void;
+/** How full a drive or a phone is: amber past three quarters, red past nine tenths. */
+function SpaceBar({ used }: { used: number }) {
+  return (
+    <span className="h-1 w-full overflow-hidden rounded-full bg-elev">
+      <span className="block h-1 rounded-full" style={{ width: `${Math.round(used * 100)}%`, background: used > 0.9 ? "rgb(var(--tone-red-400))" : used > 0.75 ? "rgb(var(--tone-amber-400))" : "var(--accent)" }} />
+    </span>
+  );
+}
+
+export function Sidebar({ cwd, pins, onOpen, fail, width }: {
+  cwd: string; pins: Pin[]; onOpen: (path: string) => void; fail: (what: string, e: unknown) => void; width: number;
 }) {
   const [drives, setDrives] = useState<Drive[]>([]);
   const [hosts, setHosts] = useState<string[]>([]);
   const [menu, setMenu] = useState<{ x: number; y: number; items: MenuEntry[] } | null>(null);
-  const loadDrives = () => void fsDrives().then(setDrives, (e: unknown) => fail("Reading the drives failed", e));
+  // Phones and cameras plugged in (unlocked, and set to file transfer), read with the drives.
+  const [devices, setDevices] = useState<ShellPlace[]>([]);
+  // The same phones over adb (USB debugging on): the private folders of their debuggable apps.
+  const [adbPhones, setAdbPhones] = useState<AdbDevice[]>([]);
+  const loadDrives = () => {
+    void fsDrives().then(setDrives, (e: unknown) => fail("Reading the drives failed", e));
+    void shellPlaces().then((list: ShellPlace[]) => { for (const d of list) nameIt(d.path, d.name); setDevices(list); },
+      (e: unknown) => console.warn("[files] reading the phones failed", e));
+    void adbDevices().then((list: AdbDevice[]) => { for (const d of list) nameIt(d.path, `${d.name} apps`); setAdbPhones(list); },
+      () => setAdbPhones([]));
+  };
   useEffect(() => {
     loadDrives();
     void sshHosts().then(setHosts, () => setHosts([]));
@@ -34,11 +56,11 @@ export function Sidebar({ cwd, pins, onOpen, fail }: {
   };
 
   return (
-    <nav aria-label="Places" className="scroll-thin flex w-56 shrink-0 flex-col gap-4 overflow-y-auto border-r border-subtle bg-panel px-2 py-3">
+    <nav aria-label="Places" style={{ width }} className="scroll-thin flex shrink-0 flex-col gap-4 overflow-y-auto border-r border-subtle bg-panel px-2 py-3">
       <div className="flex flex-col">
         <span className={head}>Pinned</span>
         {pins.map((p) => (
-          <button key={p.path} onClick={() => onOpen(p.path)} onContextMenu={(e) => pinMenu(e, p)} title={p.path}
+          <button key={p.path} onClick={() => onOpen(p.path)} onContextMenu={(e) => pinMenu(e, p)} title={p.path} {...{ [DROP]: p.path }}
             className={row + (at(p.path) ? " bg-white/[0.07] text-text-primary" : " text-text-secondary hover:bg-white/5 hover:text-text-primary")}>
             <Star size={13} className="shrink-0 text-[var(--accent)]" />
             <span className="truncate">{p.name}</span>
@@ -50,28 +72,49 @@ export function Sidebar({ cwd, pins, onOpen, fail }: {
       <div className="flex flex-col">
         <div className="flex items-center pr-1">
           <span className={head + " flex-1"}>This PC</span>
-          <IconButton size="row" title="Read the drives again" onClick={loadDrives}><RefreshCw size={11} /></IconButton>
+          <IconButton size="row" title="Read the drives and phones again" onClick={loadDrives}><RefreshCw size={11} /></IconButton>
         </div>
         {drives.map((d) => {
           const used = d.total ? 1 - d.free / d.total : 0;
-          const name = d.label ? `${d.label} (${d.path.slice(0, 2)})` : d.kind === "network" ? `Network (${d.path.slice(0, 2)})` : `${d.path.slice(0, 2)}`;
+          // The letter only, as the path bar shows it; the label (New Volume) is its tooltip.
+          const name = d.path.slice(0, 2);
           return (
-            <button key={d.path} onClick={() => onOpen(d.path)} title={d.path}
+            <button key={d.path} onClick={() => onOpen(d.path)} title={d.label ? `${d.label} (${d.path.slice(0, 2)})` : d.kind === "network" ? `Network drive ${d.path.slice(0, 2)}` : d.path} {...{ [DROP]: d.path }}
               className={"flex w-full flex-col gap-1 rounded-md px-2 py-1.5 text-left text-[12.5px] transition-colors " + (at(d.path) ? "bg-white/[0.07] text-text-primary" : "text-text-secondary hover:bg-white/5 hover:text-text-primary")}>
               <span className="flex w-full items-center gap-2">
                 {d.kind === "removable" ? <Usb size={13} className="shrink-0" /> : <HardDrive size={13} className="shrink-0" />}
                 <span className="truncate">{name}</span>
                 {d.total > 0 && <span className="ml-auto shrink-0 text-[11px] text-text-muted">{freeLabel(d.free)}</span>}
               </span>
-              {d.total > 0 && (
-                <span className="h-1 w-full overflow-hidden rounded-full bg-elev">
-                  <span className="block h-1 rounded-full" style={{ width: `${Math.round(used * 100)}%`, background: used > 0.9 ? "rgb(var(--tone-red-400))" : used > 0.75 ? "rgb(var(--tone-amber-400))" : "var(--accent)" }} />
-                </span>
-              )}
+              {d.total > 0 && <SpaceBar used={used} />}
             </button>
           );
         })}
+        {devices.map((d) => (
+          <button key={d.path} onClick={() => onOpen(d.path)} title={d.name} {...{ [DROP]: d.path }}
+            className={"flex w-full flex-col gap-1 rounded-md px-2 py-1.5 text-left text-[12.5px] transition-colors " + (cwd.startsWith(d.path) ? "bg-white/[0.07] text-text-primary" : "text-text-secondary hover:bg-white/5 hover:text-text-primary")}>
+            <span className="flex w-full items-center gap-2">
+              <Smartphone size={13} className="shrink-0" />
+              <span className="truncate">{d.name}</span>
+              {d.total > 0 && <span className="ml-auto shrink-0 text-[11px] text-text-muted">{freeLabel(d.free)}</span>}
+            </span>
+            {d.total > 0 && <SpaceBar used={1 - d.free / d.total} />}
+          </button>
+        ))}
       </div>
+
+      {adbPhones.length > 0 && (
+        <div className="flex flex-col">
+          <span className={head} title="Each debuggable app's own files, as Android Studio's Device Explorer shows them, over adb">Apps (adb)</span>
+          {adbPhones.map((d) => (
+            <button key={d.path} onClick={() => onOpen(d.path)} title={`${d.name}: the files of its debug builds, over adb`}
+              className={row + (cwd.startsWith(d.path) ? " bg-white/[0.07] text-text-primary" : " text-text-secondary hover:bg-white/5 hover:text-text-primary")}>
+              <Bug size={13} className="shrink-0" />
+              <span className="truncate">{d.name}</span>
+            </button>
+          ))}
+        </div>
+      )}
 
       <div className="flex flex-col">
         <span className={head}>Servers</span>

@@ -4,26 +4,31 @@
 //
 // Opening a file goes where Deck opens that kind (Settings, Files: a .pdf in PDF, a page in the
 // browser, code in the Editor), and anything Deck has nothing for opens in Windows' own app.
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
-  ArrowLeft, ArrowRight, ArrowUp, Check, Columns2, FilePlus, FolderOpen, FolderPlus, LayoutGrid, List,
-  MoreHorizontal, PanelRight, Plus, RefreshCw, Search as SearchIcon, X,
+  ArrowLeft, ArrowRight, ArrowUp, ArrowUpDown, Check, ChevronDown, Columns2, FolderOpen, LayoutGrid, List,
+  PanelRight, RefreshCw, Search as SearchIcon, X,
 } from "lucide-react";
 import { fsOpen, fsReveal, fsList } from "../shim/bridge.js";
 import {
-  ConfirmDialog, ContextMenu, NamePrompt, TabStrip, onKeys, openIn, openerFor, openersFor, toast, useScope,
+  ConfirmDialog, ContextMenu, NamePrompt, TabStrip, onKeys, openIn, openerFor, openersFor, toast, useResize, useScope,
   type ConfirmState, type MenuEntry, type NamePromptState,
 } from "../shim/ui.js";
 import { applyDtCommand, openInEditor, switchWorkspace, workspaceByCwd } from "../shim/terminals.js";
-import { baseName, crumbs, isRemote, parentOf, previewKind, sizeLabel, sortEntries, typeAhead, type Clash, type Entry, type SortKey } from "./logic";
-import { relist, useListing } from "./folders";
-import { cancelJob, clipboard, create, paste, remove, rename, setClipboard, useClipboard, useJob, type Ask, type Choice } from "./ops";
+import { baseName, crumbs, groupEntries, isAdb, isDevice, isRemote, parentOf, previewKind, sizeLabel, sortEntries, typeAhead, type Clash, type Entry, type SortKey } from "./logic";
+import { nameOf, phoneCrumbs, relist, useListing } from "./folders";
+import { cancelJob, clipboard, create, fromPhone, paste, remove, rename, setClipboard, useClipboard, useJob, type Ask, type Choice } from "./ops";
 import { Details, Grid } from "./Listing";
 import { Preview } from "./Preview";
 import { Search } from "./Search";
 import { Sidebar } from "./Sidebar";
 import { getState, loadState, newTab, update, updateTab, useFilesState, type Tab } from "./store";
+import { DROP, DragBadge, TABS, setDropHost } from "./drag";
 
+/** The edge a side pane is dragged by: a few pixels over the pane's border, lit while pointed at. */
+const splitter = "relative z-10 -mx-[3px] w-[6px] shrink-0 cursor-col-resize transition-colors hover:bg-[var(--accent)]";
+/** The toolbar's Sort and View: a word with an arrow, opening a menu, as Explorer's are. */
+const menuButton = "flex h-8 shrink-0 items-center gap-1.5 rounded-lg px-2.5 text-[12.5px] text-text-secondary transition-colors hover:bg-white/5 hover:text-text-primary";
 const tool = "grid size-8 shrink-0 place-items-center rounded-lg text-text-muted transition-colors hover:bg-white/5 hover:text-text-primary disabled:opacity-35 disabled:hover:bg-transparent";
 
 /** Each tab's back and forward stacks, for as long as the plugin is loaded. */
@@ -39,7 +44,7 @@ export function Files() {
   useEffect(() => { void loadState().then(() => setReady(true)); }, []);
   const tab = s.tabs.find((t) => t.id === s.active) ?? s.tabs[0];
   if (!ready || !tab) return <div className="h-full bg-app" />;
-  return <Explorer key={tab.id} tab={tab} />;
+  return <><Explorer key={tab.id} tab={tab} /><DragBadge /></>;
 }
 
 function Explorer({ tab }: { tab: Tab }) {
@@ -49,9 +54,15 @@ function Explorer({ tab }: { tab: Tab }) {
   const listing = useListing(cwd);
   const job = useJob();
   const clip = useClipboard();
+  // Grouped (Sort, Group by), the entries run group after group, so the keyboard, Shift-click and a
+  // dragged box follow the order on screen.
+  const groups = useMemo(() => {
+    const sorted = sortEntries(listing.entries.filter((e) => s.showHidden || !e.hidden), tab.sort, tab.asc);
+    return tab.group ? groupEntries(sorted, tab.group) : null;
+  }, [listing.entries, s.showHidden, tab.sort, tab.asc, tab.group]);
   const entries = useMemo(
-    () => sortEntries(listing.entries.filter((e) => s.showHidden || !e.hidden), tab.sort, tab.asc),
-    [listing.entries, s.showHidden, tab.sort, tab.asc]);
+    () => (groups ? groups.flatMap((g) => g.entries) : sortEntries(listing.entries.filter((e) => s.showHidden || !e.hidden), tab.sort, tab.asc)),
+    [groups, listing.entries, s.showHidden, tab.sort, tab.asc]);
 
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [focus, setFocus] = useState<string | null>(null);
@@ -69,6 +80,40 @@ function Explorer({ tab }: { tab: Tab }) {
   const [prompt, setPrompt] = useState<NamePromptState | null>(null);
   const [asking, setAsking] = useState<Asking | null>(null);
   const body = useRef<HTMLDivElement>(null);
+  // The sidebar and the preview pane are dragged wider or narrower by their inner edge; the width
+  // is kept for every tab once the drag ends.
+  const [sideW, sideDrag, sideDragging] = useResize({ initial: s.sidebarWidth ?? 224, min: 150, max: 420, direction: "horizontal" });
+  const [prevW, prevDrag, prevDragging] = useResize({ initial: s.previewWidth ?? 320, min: 220, max: 720, direction: "horizontal", invert: true });
+  useEffect(() => { if (!sideDragging && sideW !== (s.sidebarWidth ?? 224)) update({ sidebarWidth: sideW }); }, [sideDragging]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { if (!prevDragging && prevW !== (s.previewWidth ?? 320)) update({ previewWidth: prevW }); }, [prevDragging]); // eslint-disable-line react-hooks/exhaustive-deps
+  // The path bar shows its end, the folder you are in, when the whole path does not fit; its start
+  // fades out and the wheel scrolls back to it.
+  const crumbBar = useRef<HTMLDivElement>(null);
+  const [crumbsClipped, setCrumbsClipped] = useState(false);
+  useLayoutEffect(() => {
+    const el = crumbBar.current;
+    if (!el) return;
+    const fit = () => { el.scrollLeft = el.scrollWidth; setCrumbsClipped(el.scrollWidth > el.clientWidth + 1); };
+    fit();
+    const ro = new (el.ownerDocument.defaultView ?? window).ResizeObserver(fit);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [cwd, editingPath]);
+
+  // A phone's folder, over USB file transfer or an app's over adb: no search, no workspace, no
+  // Explorer window, no Recycle Bin.
+  const phone = isDevice(cwd) || isAdb(cwd);
+  const [phonePath, setPhonePath] = useState<{ label: string; path: string }[] | null>(null);
+  useEffect(() => {
+    setPhonePath(null);
+    if (!isDevice(cwd)) return;
+    let live = true;
+    void phoneCrumbs(cwd).then((list) => { if (live) setPhonePath(list.map((c) => ({ label: c.name, path: c.path }))); },
+      (e: unknown) => console.warn("[files] the phone's folder names could not be read", e));
+    return () => { live = false; };
+  }, [cwd, phone]);
+  const pathCrumbs = isDevice(cwd) ? phonePath ?? [{ label: nameOf(cwd), path: cwd }]
+    : isAdb(cwd) ? crumbs(cwd).map((c) => ({ ...c, label: nameOf(c.path) })) : crumbs(cwd);
 
   const fail = useCallback((what: string, e: unknown) => {
     console.warn(`[files] ${what}`, e);
@@ -94,6 +139,8 @@ function Explorer({ tab }: { tab: Tab }) {
   /** Open a file the way Deck would, or in Windows' app when Deck has nothing for its kind. */
   const openEntry = (e: Entry) => {
     if (e.dir) return go(e.path);
+    // A phone's file has no path an app can open: copied to this PC first, then opened like any other.
+    if (isDevice(e.path) || isAdb(e.path)) { run(`Opening ${e.name} failed`, async () => openEntry({ ...e, path: await fromPhone(e) })); return; }
     const to = openerFor(e.path);
     if (to !== "editor") { openIn(e.path, to); return; }
     const kind = previewKind(e.name);
@@ -102,6 +149,12 @@ function Explorer({ tab }: { tab: Tab }) {
   };
 
   const openWith = (e: Entry): MenuEntry[] => {
+    if (isDevice(e.path) || isAdb(e.path)) {
+      // Chosen by its name (a phone path has no extension), and opened from a copy on this PC.
+      return openersFor(e.name).map((o) => ({
+        label: o.label, onClick: () => run(`Opening ${e.name} failed`, async () => { const p = await fromPhone(e); if (!openIn(p, o.to)) openInEditor(p); }),
+      }));
+    }
     const items: MenuEntry[] = openersFor(e.path).map((o) => ({
       label: o.label, onClick: () => { if (!openIn(e.path, o.to)) openInEditor(e.path); },
     }));
@@ -112,12 +165,18 @@ function Explorer({ tab }: { tab: Tab }) {
   // ---- doing things ---------------------------------------------------------------------------
 
   const ask: Ask = (clash, rest) => new Promise((resolve) => setAsking({ clash, rest, resolve }));
+  // Files dropped from a drag go through this explorer's clash question and its messages, even when
+  // the drag began in another tab of Files (drag.tsx).
+  useEffect(() => {
+    setDropHost({ ask, fail, toast: (t: string) => toast(t, "success") });
+    return () => setDropHost(null);
+  }); // eslint-disable-line react-hooks/exhaustive-deps
   const run = (what: string, work: () => Promise<unknown>) => void work().catch((e) => fail(what, e));
   const copyPaths = (paths: string[]) => run("Copying the path failed", () => navigator.clipboard.writeText(paths.join("\r\n")).then(() => toast(paths.length === 1 ? "Path copied" : `${paths.length} paths copied`, "success")));
   const pasteHere = (into = cwd) => run("Pasting failed", async () => { const n = await paste(into, ask); if (n) toast(`${n} item${n === 1 ? "" : "s"} pasted`, "success"); });
   const trash = (list: Entry[], forever = false) => {
     if (!list.length) return;
-    const remote = isRemote(list[0].path);
+    const remote = isRemote(list[0].path) || isDevice(list[0].path) || isAdb(list[0].path);
     const what = list.length === 1 ? list[0].name : `${list.length} items`;
     const doIt = () => run("Deleting failed", async () => {
       await remove(list.map((e) => e.path), forever);
@@ -126,7 +185,9 @@ function Explorer({ tab }: { tab: Tab }) {
     });
     if (forever || remote) setConfirm({
       title: `Delete ${what} for good?`,
-      body: remote ? "A server has no Recycle Bin: this cannot be undone." : "It skips the Recycle Bin, so it cannot be undone.",
+      body: isAdb(list[0].path) ? "An app's folder has no Recycle Bin: this cannot be undone. Close the app first if it is running."
+        : isDevice(list[0].path) ? "A phone has no Recycle Bin: this cannot be undone."
+        : remote ? "A server has no Recycle Bin: this cannot be undone." : "It skips the Recycle Bin, so it cannot be undone.",
       confirmLabel: "Delete", onConfirm: doIt,
     });
     else doIt();
@@ -156,8 +217,12 @@ function Explorer({ tab }: { tab: Tab }) {
       const next = new Set(selected);
       if (next.has(e.path)) next.delete(e.path); else next.add(e.path);
       setSelected(next); anchor.current = e.path;
-    } else { setSelected(new Set([e.path])); anchor.current = e.path; }
+    } else if (!(selected.has(e.path) && selected.size > 1)) { setSelected(new Set([e.path])); anchor.current = e.path; }
     setFocus(e.path);
+  };
+  const settle = (e: Entry, ev: MouseEvent) => {
+    if (ev.ctrlKey || ev.shiftKey) return;
+    setSelected(new Set([e.path])); anchor.current = e.path;
   };
   const focusAt = () => (focus ? entries.findIndex((x) => x.path === focus) : -1);
   const moveFocus = (by: number, extend: boolean) => {
@@ -204,15 +269,16 @@ function Explorer({ tab }: { tab: Tab }) {
   const entryMenu = (e: Entry | null, ev: React.MouseEvent) => {
     ev.preventDefault();
     const list = e ? (selected.has(e.path) ? chosen : [e]) : [];
-    const remote = isRemote(cwd);
+    // A server's and a phone's folders: no Recycle Bin, no Explorer window, no workspace.
+    const remote = isRemote(cwd) || phone;
     const items: MenuEntry[] = e ? [
       { label: "Open", hint: "Enter", onClick: () => openEntry(e) },
       ...(e.dir ? [
         { label: "Open in a new tab", onClick: () => newTabAt(e.path) },
         // A folder already open as a workspace is switched to rather than opened twice.
-        workspaceByCwd(e.path)
+        ...(phone ? [] : [workspaceByCwd(e.path)
           ? { label: "Go to its workspace", onClick: () => switchWorkspace(workspaceByCwd(e.path)!.id) }
-          : { label: "Open as a workspace", onClick: () => applyDtCommand("new-workspace", { cwd: e.path }) },
+          : { label: "Open as a workspace", onClick: () => applyDtCommand("new-workspace", { cwd: e.path }) }]),
       ] as MenuEntry[] : [{ label: "Open with", children: openWith(e) } as MenuEntry]),
       "sep",
       { label: "Copy", hint: "Ctrl+C", onClick: () => setClipboard(list.map((x) => x.path), false) },
@@ -236,22 +302,41 @@ function Explorer({ tab }: { tab: Tab }) {
     ];
     setMenu({ x: ev.clientX, y: ev.clientY, items: e ? items : () => { const live = getState(); return items.map((i) => (i !== "sep" && i.checked !== undefined ? { ...i, checked: live.showHidden } : i)); } });
   };
-  const viewMenu = (ev: React.MouseEvent) => {
-    const r = (ev.currentTarget as HTMLElement).getBoundingClientRect();
-    setMenu({ x: r.right, y: r.bottom + 4, items: () => {
-      const live = getState();
-      return [
-        { label: "Show hidden files", checked: live.showHidden, onClick: () => update((st) => ({ showHidden: !st.showHidden })) },
-        { label: "Preview pane", checked: live.preview, onClick: () => update((st) => ({ preview: !st.preview })) },
-        "sep",
-        // One of the four, and choosing one shows the tiles.
-        ...[1, 2, 3, 4].map((n) => ({
-          label: `Tiles: ${["", "small", "medium", "large", "extra large"][n]}`, checked: live.gridSize === n,
-          onClick: () => { update({ gridSize: n }); updateTab(tab.id, { view: "grid" }); },
-        } as MenuEntry)),
-      ];
-    } });
-  };
+  // Explorer's Sort and View menus, under their buttons. The one in use is ticked; a pick closes
+  // the menu, as there. The two switches at the end of View stay open to be flipped. New
+  // folders and files are on the right-click menu (and Ctrl+Shift+N), not a button of their own.
+  const under = (ev: React.MouseEvent) => { const r = (ev.currentTarget as HTMLElement).getBoundingClientRect(); return { x: r.left, y: r.bottom + 4 }; };
+  const tick = (on: boolean) => (on ? "✓" : undefined);
+  const sortMenu = (ev: React.MouseEvent) => setMenu({ ...under(ev), items: [
+    ...([["name", "Name"], ["date", "Date modified"], ["type", "Type"], ["size", "Size"]] as const).map(([k, label]) => ({
+      label, hint: tick(tab.sort === k), onClick: () => updateTab(tab.id, { sort: k }),
+    } as MenuEntry)),
+    "sep",
+    { label: "Ascending", hint: tick(tab.asc), onClick: () => updateTab(tab.id, { asc: true }) },
+    { label: "Descending", hint: tick(!tab.asc), onClick: () => updateTab(tab.id, { asc: false }) },
+    "sep",
+    { label: "Group by", children: [
+      ...([["name", "Name"], ["date", "Date modified"], ["type", "Type"], ["size", "Size"]] as const).map(([k, label]) => ({
+        label, hint: tick(tab.group === k), onClick: () => updateTab(tab.id, { group: k }),
+      } as MenuEntry)),
+      { label: "(None)", hint: tick(!tab.group), onClick: () => updateTab(tab.id, { group: undefined }) },
+    ] },
+  ] });
+  const viewMenu = (ev: React.MouseEvent) => setMenu({ ...under(ev), items: () => {
+    const live = getState();
+    return [
+      // Biggest first, as Explorer lists them; choosing one shows the tiles.
+      ...[4, 3, 2, 1].map((n) => ({
+        label: `${["", "Small", "Medium", "Large", "Extra large"][n]} icons`, icon: LayoutGrid,
+        hint: tick(tab.view === "grid" && live.gridSize === n),
+        onClick: () => { update({ gridSize: n }); updateTab(tab.id, { view: "grid" }); },
+      } as MenuEntry)),
+      { label: "Details", icon: List, hint: tick(tab.view === "details"), onClick: () => updateTab(tab.id, { view: "details" }) },
+      "sep",
+      { label: "Preview pane", icon: PanelRight, checked: live.preview, onClick: () => update((st) => ({ preview: !st.preview })) },
+      { label: "Hidden files", checked: live.showHidden, onClick: () => update((st) => ({ showHidden: !st.showHidden })) },
+    ];
+  } });
 
   // ---- keys -----------------------------------------------------------------------------------
 
@@ -292,6 +377,9 @@ function Explorer({ tab }: { tab: Tab }) {
     sort: tab.sort, asc: tab.asc,
     onSort: (k: SortKey) => updateTab(tab.id, k === tab.sort ? { asc: !tab.asc } : { sort: k, asc: true }),
     onPick: pick, onOpen: openEntry, onMenu: entryMenu, onRename,
+    onMarquee: (paths: Set<string>) => { setSelected(paths); setFocus(null); anchor.current = null; },
+    cwd, onSettle: settle, groups,
+    dragItems: (e: Entry) => (selected.has(e.path) ? entries.filter((x) => selected.has(x.path)) : [e]),
   };
   const chosenSize = chosen.reduce((n, e) => n + e.size, 0);
 
@@ -301,8 +389,9 @@ function Explorer({ tab }: { tab: Tab }) {
       // down too: left to the webview, they would move its own history.
       onMouseDown={(ev) => { if (ev.button === 3 || ev.button === 4) ev.preventDefault(); }}
       onMouseUp={(ev) => { if (ev.button === 3) { ev.preventDefault(); back(); } else if (ev.button === 4) { ev.preventDefault(); forward(); } }}>
+      <div {...{ [TABS]: "" }} className="contents">
       <TabStrip chip
-        tabs={s.tabs.map((t) => ({ id: t.id, title: baseName(t.path), icon: <FolderOpen size={13} className="text-text-muted" /> }))}
+        tabs={s.tabs.map((t) => ({ id: t.id, title: nameOf(t.path), icon: <FolderOpen size={13} className="text-text-muted" /> }))}
         activeId={tab.id}
         onSelect={(id) => update({ active: id })}
         onClose={(id) => update((st) => {
@@ -317,6 +406,7 @@ function Explorer({ tab }: { tab: Tab }) {
           const [m] = tabs.splice(a, 1); tabs.splice(b, 0, m); return { tabs };
         })}
         onAdd={() => newTabAt(cwd)} addTitle="New tab here" />
+      </div>
 
       <div className="flex h-12 shrink-0 items-center gap-1.5 border-b border-subtle px-2.5">
         <button className={tool} title="Back (Alt+Left)" aria-label="Back" disabled={!h.back.length} onClick={back}><ArrowLeft size={16} /></button>
@@ -337,12 +427,14 @@ function Explorer({ tab }: { tab: Tab }) {
             onBlur={() => setEditingPath(false)}
             className="h-8 min-w-0 flex-1 rounded-lg border border-[var(--accent)] bg-elev px-2.5 text-[12.5px] text-text-primary outline-none" />
         ) : (
-          <div onClick={(ev) => { if (ev.target === ev.currentTarget) setEditingPath(true); }} title="Click to type a path"
-            className="flex h-8 min-w-0 flex-1 cursor-text items-center gap-0.5 overflow-hidden rounded-lg border border-subtle bg-elev px-1.5 text-[12.5px]">
-            {crumbs(cwd).map((c, i, all) => (
+          <div ref={crumbBar} onClick={(ev) => { if (ev.target === ev.currentTarget) setEditingPath(true); }} title="Click to type a path"
+            onWheel={(ev) => { ev.currentTarget.scrollLeft += ev.deltaY || ev.deltaX; }}
+            className="flex h-8 min-w-0 flex-1 cursor-text items-center gap-0.5 overflow-hidden rounded-lg border border-subtle bg-elev px-1.5 text-[12.5px]"
+            style={crumbsClipped ? { maskImage: "linear-gradient(to right, transparent, black 28px)" } : undefined}>
+            {pathCrumbs.map((c, i, all) => (
               <span key={c.path} className="flex shrink-0 items-center">
                 {i > 0 && <span className="px-0.5 text-text-muted">›</span>}
-                <button onClick={() => go(c.path)}
+                <button onClick={() => go(c.path)} {...{ [DROP]: c.path }}
                   className={"rounded px-1.5 py-0.5 hover:bg-white/5 " + (i === all.length - 1 ? "text-text-primary" : "text-text-secondary hover:text-text-primary")}>
                   {c.label}
                 </button>
@@ -354,37 +446,23 @@ function Explorer({ tab }: { tab: Tab }) {
 
         <label className="flex h-8 w-64 shrink-0 items-center gap-2 rounded-lg border border-subtle bg-elev px-2.5 text-text-muted focus-within:border-[var(--accent)]">
           <SearchIcon size={14} className="shrink-0" />
-          <input id={`files-search-${tab.id}`} value={query} placeholder={`Search ${baseName(cwd)}`} aria-label="Search this folder"
+          <input id={`files-search-${tab.id}`} value={query} placeholder={phone ? "Search is not available on a phone" : `Search ${nameOf(cwd)}`} disabled={phone} aria-label="Search this folder"
             onChange={(ev) => { setQuery(ev.target.value); if (!ev.target.value) setSearched(""); }}
             onKeyDown={(ev) => { if (ev.key === "Enter") setSearched(query.trim()); if (ev.key === "Escape") { setQuery(""); setSearched(""); body.current?.focus(); } }}
             className="min-w-0 flex-1 bg-transparent text-[12.5px] text-text-primary outline-none placeholder:text-text-muted" />
           {query && <button aria-label="Clear the search" onClick={() => { setQuery(""); setSearched(""); }} className="text-text-muted hover:text-text-primary"><X size={13} /></button>}
         </label>
 
-        <div className="flex shrink-0 gap-0.5 rounded-lg border border-subtle bg-elev p-0.5">
-          {([["details", List, "Details"], ["grid", LayoutGrid, "Tiles"]] as const).map(([v, Icon, title]) => (
-            <button key={v} title={title} aria-label={title} aria-pressed={tab.view === v} onClick={() => updateTab(tab.id, { view: v })}
-              className={"grid h-7 w-8 place-items-center rounded-md transition-colors " + (tab.view === v ? "text-text-primary" : "text-text-muted hover:text-text-primary")}
-              style={tab.view === v ? { background: "var(--accent-soft)" } : undefined}>
-              <Icon size={14} />
-            </button>
-          ))}
-        </div>
-        <button className={tool} title="Preview pane" aria-label="Preview pane" aria-pressed={s.preview} onClick={() => update((st) => ({ preview: !st.preview }))}
-          style={s.preview ? { color: "var(--text-primary)" } : undefined}><PanelRight size={15} /></button>
-        <button className={tool} title="View options" aria-label="View options" onClick={viewMenu}><MoreHorizontal size={16} /></button>
-        <button onClick={(ev) => { const r = ev.currentTarget.getBoundingClientRect(); setMenu({ x: r.left, y: r.bottom + 4, items: [
-            { label: "Folder", icon: FolderPlus, hint: "Ctrl+Shift+N", onClick: () => newItem(true) },
-            { label: "File", icon: FilePlus, onClick: () => newItem(false) },
-          ] }); }}
-          className="flex h-8 shrink-0 items-center gap-1.5 rounded-lg px-3 text-[12.5px] font-medium text-white transition hover:brightness-110" style={{ background: "var(--accent)" }}>
-          <Plus size={14} />New
+        <button className={menuButton} aria-haspopup="menu" onClick={sortMenu}><ArrowUpDown size={14} />Sort<ChevronDown size={12} className="text-text-muted" /></button>
+        <button className={menuButton} aria-haspopup="menu" onClick={viewMenu}>
+          {tab.view === "grid" ? <LayoutGrid size={14} /> : <List size={14} />}View<ChevronDown size={12} className="text-text-muted" />
         </button>
       </div>
 
       <div className="flex min-h-0 flex-1">
-        <Sidebar cwd={cwd} pins={s.pins} onOpen={(p) => go(p)} fail={fail} />
-        <div ref={body} tabIndex={0} onKeyDown={onKeyDown} aria-label={baseName(cwd)}
+        <Sidebar cwd={cwd} pins={s.pins} onOpen={(p) => go(p)} fail={fail} width={sideW} />
+        <div {...sideDrag} title="Drag to resize" className={splitter} />
+        <div ref={body} tabIndex={0} onKeyDown={onKeyDown} aria-label={nameOf(cwd)}
           onMouseDown={(ev) => { if ((ev.target as HTMLElement).closest("[data-path]") === null && ev.button === 0) { setSelected(new Set()); setFocus(null); } }}
           className="flex min-w-0 flex-1 flex-col outline-none">
           {searched ? (
@@ -393,7 +471,7 @@ function Explorer({ tab }: { tab: Tab }) {
               onOpenLine={(p, line) => openInEditor(p, line)} />
           ) : listing.error ? (
             <div className="p-6 text-[12.5px]">
-              <p className="text-red-400">{baseName(cwd)} could not be opened: {listing.error.replace(/^Error: /, "")}</p>
+              <p className="text-red-400">{nameOf(cwd)} could not be opened: {listing.error.replace(/^Error: /, "")}</p>
               {parentOf(cwd) && <button onClick={up} className="mt-2 text-[var(--accent)] hover:underline">Go up a folder</button>}
             </div>
           ) : !listing.loading && entries.length === 0 ? (
@@ -420,11 +498,12 @@ function Explorer({ tab }: { tab: Tab }) {
             )}
           </div>
         </div>
-        {s.preview && !searched && (
-          <Preview selected={chosen} cwd={cwd} onOpen={openEntry}
+        {s.preview && !searched && (<>
+          <div {...prevDrag} title="Drag to resize" className={splitter} />
+          <Preview selected={chosen} cwd={cwd} onOpen={openEntry} width={prevW}
             openWithMenu={(e, x, y) => setMenu({ x, y, items: openWith(e) })}
             onCopyPath={copyPaths} onReveal={(p) => run("Showing it failed", () => fsReveal(p))} />
-        )}
+        </>)}
       </div>
 
       {menu && <ContextMenu x={menu.x} y={menu.y} items={typeof menu.items === "function" ? menu.items() : menu.items} onClose={() => setMenu(null)} />}

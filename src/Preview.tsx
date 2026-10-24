@@ -4,7 +4,9 @@
 import { useEffect, useState } from "react";
 import { convertFileSrc, fsRead, mediaMeta } from "../shim/bridge.js";
 import { FileIcon, MediaViewer, MonacoViewer, themeById, useEditorSettings } from "../shim/ui.js";
-import { baseName, extOf, isRemote, previewKind, sizeLabel, typeLabel, type Entry } from "./logic";
+import { extOf, isAdb, isDevice, isRemote, offPc, parentOf, previewKind, sizeLabel, typeLabel, type Entry } from "./logic";
+import { nameOf } from "./folders";
+import { adbRead } from "./adb";
 import { useThumb } from "./thumbs";
 
 /** Text larger than this is not read for the preview. */
@@ -20,21 +22,23 @@ export const when = (ms: number) => (ms ? new Date(ms).toLocaleString([], { date
 
 function Shown({ e }: { e: Entry }) {
   const kind = previewKind(e.name);
-  const local = !isRemote(e.path);
+  const phone = isDevice(e.path);
+  const local = !isRemote(e.path) && !phone;
   const [text, setText] = useState<string | null>(null);
-  const thumb = useThumb(e.path, e.mtimeMs, 512, local && kind === "pdf");
+  const thumb = useThumb(e.path, e.mtimeMs, 512, (local && (kind === "pdf" || kind === "photo")) || (phone && kind !== "text" && kind !== "none"));
   useEffect(() => {
     setText(null);
-    if (kind !== "text" || e.size > TEXT_MAX) return;
+    // An app's file over adb is read too: its shared_prefs XML and JSON are what it is opened for.
+    if (kind !== "text" || e.size > TEXT_MAX || !(local || isAdb(e.path))) return;
     let live = true;
-    void fsRead(e.path).then((t: string) => { if (live) setText(t); }, () => { if (live) setText(""); });
+    void (isAdb(e.path) ? adbRead(e.path) : fsRead(e.path)).then((t: string) => { if (live) setText(t); }, () => { if (live) setText(""); });
     return () => { live = false; };
   }, [e.path, e.mtimeMs]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const box = "flex h-56 shrink-0 items-center justify-center overflow-hidden rounded-xl border border-subtle bg-elev";
   if (kind === "image" && local) return <div className={box}><img src={convertFileSrc(e.path)} alt={e.name} className="max-h-full max-w-full object-contain" /></div>;
   if (kind === "media" && local) return <div className={box + " [&>*]:max-h-full"}><MediaViewer path={e.path} /></div>;
-  if (kind === "pdf" && thumb) return <div className={box}><img src={thumb} alt={e.name} className="max-h-full max-w-full object-contain" /></div>;
+  if ((kind === "pdf" || kind === "photo" || phone) && thumb) return <div className={box}><img src={thumb} alt={e.name} className="max-h-full max-w-full object-contain" /></div>;
   if (kind === "text" && e.size <= TEXT_MAX && text !== null)
     return <div className="h-72 shrink-0 overflow-hidden rounded-xl border border-subtle"><MonacoViewer content={text} language={LANG[extOf(e.name)] ?? "plaintext"} /></div>;
   return <Big e={e} />;
@@ -49,8 +53,8 @@ function Big({ e }: { e: Pick<Entry, "name" | "dir"> }) {
   );
 }
 
-export function Preview({ selected, cwd, onOpen, openWithMenu, onCopyPath, onReveal }: {
-  selected: Entry[]; cwd: string;
+export function Preview({ selected, cwd, onOpen, openWithMenu, onCopyPath, onReveal, width }: {
+  selected: Entry[]; cwd: string; width: number;
   onOpen: (e: Entry) => void;
   openWithMenu: (e: Entry, x: number, y: number) => void;
   onCopyPath: (paths: string[]) => void;
@@ -68,10 +72,10 @@ export function Preview({ selected, cwd, onOpen, openWithMenu, onCopyPath, onRev
 
   const fact = (k: string, v: string) => v && (<><span className="text-text-muted">{k}</span><span className="break-all text-text-secondary">{v}</span></>);
   return (
-    <aside aria-label="Preview" className="scroll-thin flex w-80 shrink-0 flex-col gap-3 overflow-y-auto border-l border-subtle bg-panel p-4">
-      {one ? <Shown key={one.path} e={one} /> : <Big e={{ name: baseName(cwd), dir: selected.length === 0 }} />}
+    <aside aria-label="Preview" style={{ width }} className="scroll-thin flex shrink-0 flex-col gap-3 overflow-y-auto border-l border-subtle bg-panel p-4">
+      {one ? <Shown key={one.path} e={one} /> : <Big e={{ name: nameOf(cwd), dir: selected.length === 0 }} />}
       <div className="flex flex-col gap-0.5">
-        <span className="break-all text-[14px] font-semibold text-text-primary">{one ? one.name : selected.length ? `${selected.length} items` : baseName(cwd)}</span>
+        <span className="break-all text-[14px] font-semibold text-text-primary">{one ? one.name : selected.length ? `${selected.length} items` : nameOf(cwd)}</span>
         <span className="text-[12px] text-text-muted">
           {one ? [typeLabel(one), dims].filter(Boolean).join(" · ")
             : selected.length ? `${sizeLabel(selected.reduce((n, e) => n + e.size, 0))} in the files selected` : "Folder"}
@@ -81,7 +85,8 @@ export function Preview({ selected, cwd, onOpen, openWithMenu, onCopyPath, onRev
         <div className="grid grid-cols-[84px_1fr] gap-y-1.5 text-[12px]">
           {!one.dir && fact("Size", sizeLabel(one.size))}
           {fact("Modified", when(one.mtimeMs))}
-          {fact("Where", one.path.slice(0, one.path.length - one.name.length).replace(/[\\/]$/, ""))}
+          {/* A phone's folder by its name: its path is ids. */}
+              {fact("Where", isDevice(one.path) || isAdb(one.path) ? nameOf(parentOf(one.path) ?? "") : one.path.slice(0, one.path.length - one.name.length).replace(/[\\/]$/, ""))}
         </div>
       )}
       {one && (
@@ -101,7 +106,7 @@ export function Preview({ selected, cwd, onOpen, openWithMenu, onCopyPath, onRev
       {selected.length > 0 && (
         <div className="flex flex-wrap gap-x-3 gap-y-1 text-[12px]">
           <button onClick={() => onCopyPath(selected.map((e) => e.path))} className="text-[var(--accent)] hover:underline">Copy path</button>
-          {one && !isRemote(one.path) && <button onClick={() => onReveal(one.path)} className="text-[var(--accent)] hover:underline">Show in Windows Explorer</button>}
+          {one && !offPc(one.path) && <button onClick={() => onReveal(one.path)} className="text-[var(--accent)] hover:underline">Show in Windows Explorer</button>}
         </div>
       )}
     </aside>

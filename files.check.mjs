@@ -23,6 +23,72 @@ assert.equal(L.isRemote("D:/x"), false);
 assert.equal(L.isRemote("vps:/x"), true);
 
 assert.equal(L.joinPath("C:\\", "Users"), String.raw`C:\Users`);
+
+// Grouping, as Explorer's Group by: groups in their own order, each keeping the sort's order.
+{
+  const now = new Date(2026, 9, 24, 12).getTime(); // a Saturday
+  const f = (name, mtimeMs, size = 1, dir = false) => ({ name, path: "C:\\x\\" + name, dir, mtimeMs, size, hidden: false });
+  const day = 24 * 60 * 60 * 1000;
+  const list = [f("today.txt", now - 1000), f("old.txt", new Date(2020, 0, 1).getTime()), f("yday.txt", now - day), f("mon.txt", new Date(2026, 9, 19, 9).getTime()), f("lastweek.txt", new Date(2026, 9, 14).getTime())];
+  assert.deepEqual(L.groupEntries(list, "date", now).map((g) => [g.label, g.entries.map((e) => e.name)]), [
+    ["Today", ["today.txt"]], ["Yesterday", ["yday.txt"]], ["Earlier this week", ["mon.txt"]], ["Last week", ["lastweek.txt"]], ["A long time ago", ["old.txt"]],
+  ]);
+  assert.deepEqual(L.groupEntries([f("b.md", 0), f("dir", 0, 0, true), f("a.txt", 0), f("c.md", 0)], "type").map((g) => [g.label, g.entries.length]),
+    [["Folder", 1], ["Markdown", 2], ["Text", 1]], "folders first, then types alphabetically");
+  assert.deepEqual(L.groupEntries([f("big", 0, 2 * 1024 ** 3), f("empty", 0, 0), f("d", 0, 0, true), f("s", 0, 100 * 1024)], "size").map((g) => g.label),
+    ["Folders", "Empty (0 KB)", "Small (16 KB - 1 MB)", "Huge (1 - 4 GB)"]);
+  assert.deepEqual(L.groupEntries([f("zed", 0), f("1st", 0), f("_x", 0), f("apple", 0), f("Mango", 0)], "name").map((g) => g.label),
+    ["0 - 9", "A - H", "I - P", "Q - Z", "Other"]);
+}
+
+// A phone, as Windows' shell names it: the device has no parent, each folder the one before it.
+{
+  const phone = String.raw`::{20D04FE0-3AEA-1069-A2D8-08002B30309D}\\\?\usb#vid_04e8&pid_6860&ms_comp_mtp&samsung_android#6&2ce7b1e7&1&0000#{6ac27878-a6fa-4155-ba85-f98f491d4f33}`;
+  const storage = phone + String.raw`\SID-{10001,,234073620480}`;
+  const pics = storage + String.raw`\{00000123-0000-0000-0000-000000000000}`;
+  assert.ok(L.isDevice(phone) && L.isDevice(pics) && !L.isDevice("C:\\x"));
+  assert.ok(!L.isRemote(phone), "a phone is not a server");
+  assert.equal(L.deviceRoot(pics), phone);
+  assert.equal(L.parentOf(phone), null);
+  assert.equal(L.parentOf(storage), phone);
+  assert.equal(L.parentOf(pics), storage);
+  assert.ok(L.sameVolume(pics, storage), "within a phone a drop moves");
+  assert.ok(!L.sameVolume(pics, "C:\\x"), "between a phone and this PC it copies");
+  assert.ok(!L.canDrop([{ path: pics + "\\{1}" }], pics), "where it already is");
+}
+
+// An app's folder over adb: real names, the phone at the top.
+{
+  const app = "::adb/R5CY207JF2V/com.hassan171.wallet";
+  assert.deepEqual(L.adbParts(app + "/shared_prefs/x.xml"), { serial: "R5CY207JF2V", pkg: "com.hassan171.wallet", rel: "/shared_prefs/x.xml" });
+  assert.deepEqual(L.adbParts("::adb/R5CY207JF2V"), { serial: "R5CY207JF2V", pkg: "", rel: "" });
+  assert.equal(L.parentOf(app + "/shared_prefs/x.xml"), app + "/shared_prefs");
+  assert.equal(L.parentOf(app + "/shared_prefs"), app);
+  assert.equal(L.parentOf(app), "::adb/R5CY207JF2V");
+  assert.equal(L.parentOf("::adb/R5CY207JF2V"), null);
+  assert.equal(L.adbAbs("com.hassan171.wallet", "/databases"), "/data/data/com.hassan171.wallet/databases");
+  assert.equal(L.joinPath(app, "files"), app + "/files");
+  assert.equal(L.baseName(app + "/shared_prefs"), "shared_prefs");
+  assert.ok(L.isAdb(app) && !L.isRemote(app) && !L.isDevice(app) && L.offPc(app));
+  assert.deepEqual(L.crumbs(app + "/databases").map((c) => c.label), ["R5CY207JF2V", "com.hassan171.wallet", "databases"]);
+}
+
+// Keep both, as Explorer names the copy.
+assert.equal(L.keptName("notes.txt", ["notes.txt"]), "notes (2).txt");
+assert.equal(L.keptName("notes.txt", ["notes.txt", "Notes (2).txt"]), "notes (3).txt");
+assert.equal(L.keptName("databases", ["databases"]), "databases (2)");
+assert.equal(L.keptName(".env", [".env"]), ".env (2)", "a dotfile is all stem");
+
+// Dragging files: a plain drop moves on the same drive or server and copies elsewhere; never into
+// one of the folders dragged, nor into the folder they are already in.
+assert.ok(L.sameVolume(String.raw`C:\a\x.txt`, "c:\\b"));
+assert.ok(!L.sameVolume(String.raw`C:\a\x.txt`, "D:\\b"));
+assert.ok(L.sameVolume("vps:/srv/a", "vps:/home"));
+assert.ok(!L.sameVolume("vps:/srv/a", "mac:/srv"));
+assert.ok(L.canDrop([{ path: String.raw`C:\a\x.txt` }], String.raw`C:\b`));
+assert.ok(!L.canDrop([{ path: String.raw`C:\a\x.txt` }], "C:\\A\\"), "where it already is, a trailing \\ and case aside");
+assert.ok(!L.canDrop([{ path: String.raw`C:\a` }], String.raw`C:\a\sub`), "into itself");
+assert.ok(!L.canDrop([{ path: String.raw`C:\a` }], String.raw`C:\a`), "onto itself");
 assert.equal(L.joinPath(String.raw`C:\Users`, "Hasan"), String.raw`C:\Users\Hasan`);
 assert.equal(L.joinPath("vps:/", "srv"), "vps:/srv");
 assert.equal(L.joinPath("vps:/srv", "x"), "vps:/srv/x");

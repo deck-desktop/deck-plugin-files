@@ -14,8 +14,43 @@ export interface Entry { name: string; path: string; dir: boolean; mtimeMs: numb
 const REMOTE = /^([A-Za-z0-9._@-]{2,})(\+sudo)?:(\/.*)$/;
 export const isRemote = (p: string) => REMOTE.test(p);
 
+// A phone's or camera's folder, as Windows' shell names it (Deck's shellList): the device is
+// `::{This PC}\\\?\usb#…#{…}`, and below it come `\SID-{…}` and `\{object id}` parts. The parts
+// are the device's ids, not names: a title or a breadcrumb asks Deck for the names (shellParents).
+export const isDevice = (p: string) => p.startsWith("::{");
+const DEVICE_ROOT = /^::\{[^}]+\}\\\\\\\?\\[^\\]+/;
+/** The device a phone path is on: its top, which has no parent. */
+export const deviceRoot = (p: string) => DEVICE_ROOT.exec(p)?.[0] ?? null;
+
+// An app's private folder on a phone, over adb (adb.ts): `::adb/<serial>` is the phone (its
+// debuggable apps), `::adb/<serial>/<package>` the app's /data/data/<package>, then its folders.
+// Real names all the way down, unlike a phone over USB file transfer.
+export const isAdb = (p: string) => p.startsWith("::adb/");
+const ADB = /^::adb\/([^/]+)(?:\/([^/]+)(\/.*)?)?$/;
+export const adbRoot = (serial: string) => `::adb/${serial}`;
+/** The phone, the app and the path inside the app's folder ("" for the folder itself). */
+export function adbParts(p: string): { serial: string; pkg: string; rel: string } | null {
+  const m = ADB.exec(p.replace(/\/+$/, ""));
+  return m ? { serial: m[1], pkg: m[2] ?? "", rel: m[3] ?? "" } : null;
+}
+/** Where an adb path is on the phone. */
+export const adbAbs = (pkg: string, rel: string) => `/data/data/${pkg}${rel}`;
+/** Not this PC's disk: a server's folder, a phone's over USB, an app's over adb. */
+export const offPc = (p: string) => isRemote(p) || isDevice(p) || isAdb(p);
+
 /** The folder holding `p`, or null at a top: a drive, a share, a server's `/`. */
 export function parentOf(p: string): string | null {
+  if (isAdb(p)) {
+    const a = adbParts(p);
+    if (!a || !a.pkg) return null;
+    return a.rel ? p.replace(/\/+$/, "").replace(/\/[^/]+$/, "") : adbRoot(a.serial);
+  }
+  if (isDevice(p)) {
+    const root = deviceRoot(p);
+    if (!root || p.length <= root.length) return null;
+    const at = p.lastIndexOf("\\");
+    return at >= root.length ? p.slice(0, at) : root;
+  }
   const r = REMOTE.exec(p);
   if (r) {
     const path = r[3].replace(/\/+$/, "");
@@ -35,12 +70,14 @@ export function parentOf(p: string): string | null {
 
 /** `name` inside folder `dir`. */
 export function joinPath(dir: string, name: string): string {
+  if (isAdb(dir)) return `${dir.replace(/\/+$/, "")}/${name}`;
   if (isRemote(dir)) return dir.endsWith("/") ? dir + name : `${dir}/${name}`;
   return dir.endsWith("\\") || dir.endsWith("/") ? dir + name : `${dir}\\${name}`;
 }
 
 /** The last part of a path, for a title. A drive is `C:`, a server's root its host. */
 export function baseName(p: string): string {
+  if (isAdb(p)) return p.replace(/\/+$/, "").split("/").pop() ?? p;
   const r = REMOTE.exec(p);
   if (r) return r[3].replace(/\/+$/, "").split("/").pop() || r[1];
   const w = p.replace(/\//g, "\\").replace(/\\+$/, "");
@@ -96,6 +133,7 @@ const TYPES: Record<string, string> = {
   ts: "TypeScript", tsx: "TypeScript", js: "JavaScript", jsx: "JavaScript", mjs: "JavaScript", cjs: "JavaScript",
   rs: "Rust", dart: "Dart", py: "Python", go: "Go", java: "Java", kt: "Kotlin", cs: "C#", cpp: "C++", c: "C", h: "C header",
   html: "HTML", htm: "HTML", css: "CSS", scss: "SCSS", sql: "SQL", sh: "Shell script", ps1: "PowerShell", bat: "Batch", cmd: "Batch",
+  heic: "HEIC image", heif: "HEIF image", avif: "AVIF image", tif: "TIFF image", tiff: "TIFF image",
   png: "PNG image", jpg: "JPEG image", jpeg: "JPEG image", gif: "GIF image", webp: "WebP image", svg: "SVG image", ico: "Icon", bmp: "Bitmap",
   mp4: "MP4 video", mov: "QuickTime video", mkv: "Matroska video", webm: "WebM video", mp3: "MP3 audio", wav: "WAV audio", flac: "FLAC audio", m4a: "M4A audio",
   pdf: "PDF document", doc: "Word document", docx: "Word document", xls: "Excel sheet", xlsx: "Excel sheet", ppt: "PowerPoint", pptx: "PowerPoint",
@@ -123,14 +161,18 @@ export function sizeLabel(bytes: number): string {
 export const freeLabel = (bytes: number) => `${sizeLabel(bytes)} free`;
 
 /** What the preview pane can show. */
-export type PreviewKind = "image" | "text" | "media" | "pdf" | "none";
+export type PreviewKind = "image" | "photo" | "text" | "media" | "pdf" | "none";
 const TEXT = new Set(["md", "txt", "json", "yaml", "yml", "toml", "xml", "csv", "ts", "tsx", "js", "jsx", "mjs", "cjs", "rs", "dart",
   "py", "go", "java", "kt", "cs", "cpp", "c", "h", "html", "htm", "css", "scss", "sql", "sh", "ps1", "bat", "cmd", "ini", "cfg", "log", "env", "gitignore"]);
 const IMAGES = new Set(["png", "jpg", "jpeg", "gif", "webp", "bmp", "ico", "svg"]);
+/** Pictures the page cannot draw but Windows can (with its HEIF extension, for HEIC): shown by the
+ *  shell's thumbnail, as a PDF's first page is. */
+const PHOTOS = new Set(["heic", "heif", "tif", "tiff", "dng", "cr2", "cr3", "nef", "arw", "raf", "orf", "rw2"]);
 const MEDIA = new Set(["mp4", "mov", "mkv", "webm", "mp3", "wav", "flac", "m4a", "ogg"]);
 export function previewKind(name: string): PreviewKind {
   const ext = extOf(name) || name.toLowerCase().replace(/^\./, "");
   if (IMAGES.has(ext)) return "image";
+  if (PHOTOS.has(ext)) return "photo";
   if (MEDIA.has(ext)) return "media";
   if (ext === "pdf") return "pdf";
   if (TEXT.has(ext)) return "text";
@@ -179,4 +221,83 @@ export function typeAhead(names: readonly string[], at: number, typed: string): 
 export function nameMatches(name: string, query: string): boolean {
   const n = name.toLowerCase();
   return query.toLowerCase().split(/\s+/).filter(Boolean).every((w) => n.includes(w));
+}
+
+/** Same drive (C: and C:), or the same server: where a plain drop moves rather than copies. */
+export function sameVolume(a: string, b: string): boolean {
+  const vol = (p: string) => (isRemote(p) ? p.slice(0, p.indexOf(":")) : p.slice(0, 2)).toLowerCase();
+  return vol(a) === vol(b);
+}
+
+/** Whether these files can be dropped into `dir`: not into one of themselves, nor where they are. */
+export function canDrop(items: { path: string }[], dir: string): boolean {
+  const norm = (p: string) => p.replace(/[\\/]+$/, "").toLowerCase();
+  return items.every((s) => !insideItself(s.path, dir) && norm(parentOf(s.path) ?? "") !== norm(dir));
+}
+
+// ---- grouping ----------------------------------------------------------------------------------
+
+/** What the listing is grouped by (Sort, Group by), or nothing. */
+export type GroupKey = "name" | "date" | "type" | "size";
+export interface Group { label: string; entries: Entry[] }
+
+const DAY = 24 * 60 * 60 * 1000;
+/** Explorer's date groups, newest first: the label for `ms`, as seen at `now`. */
+function dateGroup(ms: number, now: number): string {
+  const d = new Date(now), today = new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+  const weekStart = today - ((d.getDay() + 6) % 7) * DAY; // weeks start on Monday
+  const monthStart = new Date(d.getFullYear(), d.getMonth(), 1).getTime();
+  const lastMonthStart = new Date(d.getFullYear(), d.getMonth() - 1, 1).getTime();
+  const yearStart = new Date(d.getFullYear(), 0, 1).getTime();
+  if (ms >= today) return "Today";
+  if (ms >= today - DAY) return "Yesterday";
+  if (ms >= weekStart) return "Earlier this week";
+  if (ms >= weekStart - 7 * DAY) return "Last week";
+  if (ms >= monthStart) return "Earlier this month";
+  if (ms >= lastMonthStart) return "Last month";
+  if (ms >= yearStart) return "Earlier this year";
+  return "A long time ago";
+}
+const DATE_ORDER = ["Today", "Yesterday", "Earlier this week", "Last week", "Earlier this month", "Last month", "Earlier this year", "A long time ago"];
+/** Explorer's size groups, by what a file weighs; a folder has no size of its own. */
+const SIZES: [number, string][] = [[0, "Empty (0 KB)"], [16 * 1024, "Tiny (0 - 16 KB)"], [1024 ** 2, "Small (16 KB - 1 MB)"],
+  [128 * 1024 ** 2, "Medium (1 - 128 MB)"], [1024 ** 3, "Large (128 MB - 1 GB)"], [4 * 1024 ** 3, "Huge (1 - 4 GB)"], [Infinity, "Gigantic (> 4 GB)"]];
+function sizeGroup(e: Entry): string {
+  if (e.dir) return "Folders";
+  return SIZES.find(([max]) => e.size <= max)![1];
+}
+/** Explorer's name groups: digits, three letter ranges, everything else. */
+function nameGroup(name: string): string {
+  const c = name.trim().charAt(0).toUpperCase();
+  if (/[0-9]/.test(c)) return "0 - 9";
+  if (c >= "A" && c <= "H") return "A - H";
+  if (c >= "I" && c <= "P") return "I - P";
+  if (c >= "Q" && c <= "Z") return "Q - Z";
+  return "Other";
+}
+
+/**
+ * The entries in groups, in the order the groups are shown; each group keeps the entries' order
+ * (the sort). Types are alphabetical with folders first; names, dates and sizes in their own order.
+ */
+export function groupEntries(list: Entry[], by: GroupKey, now = Date.now()): Group[] {
+  const label = by === "name" ? (e: Entry) => nameGroup(e.name)
+    : by === "date" ? (e: Entry) => dateGroup(e.mtimeMs, now)
+    : by === "size" ? sizeGroup
+    : (e: Entry) => typeLabel(e);
+  const groups = new Map<string, Entry[]>();
+  for (const e of list) { const k = label(e); const g = groups.get(k); if (g) g.push(e); else groups.set(k, [e]); }
+  const order = by === "date" ? DATE_ORDER
+    : by === "size" ? ["Folders", ...SIZES.map(([, l]) => l)]
+    : by === "name" ? ["0 - 9", "A - H", "I - P", "Q - Z", "Other"]
+    : ["Folder", ...[...groups.keys()].filter((k) => k !== "Folder").sort((a, b) => collator.compare(a, b))];
+  return order.filter((k) => groups.has(k)).map((k) => ({ label: k, entries: groups.get(k)! }));
+}
+
+/** A name kept beside one already taken, as Explorer does it: `notes (2).txt`, then (3), and on. */
+export function keptName(name: string, taken: string[]): string {
+  const used = new Set(taken.map((t) => t.toLowerCase()));
+  const dot = name.lastIndexOf(".");
+  const [stem, ext] = dot > 0 ? [name.slice(0, dot), name.slice(dot)] : [name, ""];
+  for (let n = 2; ; n++) { const c = `${stem} (${n})${ext}`; if (!used.has(c.toLowerCase())) return c; }
 }
