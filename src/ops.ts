@@ -9,8 +9,8 @@
 // call works on one side.
 import { useSyncExternalStore } from "react";
 import { dataDir, fsCopy, fsCreateDir, fsCreateFile, fsDelete, fsList, fsMove, fsRename, fsTrash, shellDelete, shellNewFolder, shellRename, shellTransfer } from "../shim/bridge.js";
-import { baseName, clashes, insideItself, isAdb, isDevice, isRemote, joinPath, offPc, parentOf, type Clash, type Entry } from "./logic";
-import { adbPull } from "./adb";
+import { baseName, clashes, insideItself, isAdb, isDevice, isRemote, joinPath, keptName, offPc, parentOf, type Clash, type Entry } from "./logic";
+import { adbList, adbPull, adbPush } from "./adb";
 import { relist } from "./folders";
 
 // ---- the clipboard -----------------------------------------------------------------------------
@@ -45,7 +45,7 @@ export async function transfer(sources: Entry[] | { path: string; dir: boolean }
   if (items.some((s) => insideItself(s.path, dest))) throw new Error("A folder cannot be copied or moved into itself.");
   // An app's files over adb: copied to this PC only, so far. Unpacked into a folder of this
   // plugin's first, then moved into place by Windows' copy, which asks about a name already there.
-  if (isAdb(dest)) throw new Error("Copying into an app's folder is not possible yet: copy from it to this PC.");
+  if (isAdb(dest)) return intoApp(items, dest, move, ask);
   if (items.some((s) => isAdb(s.path))) {
     if (offPc(dest)) throw new Error("An app's files can be copied to this PC only.");
     if (move) throw new Error("An app's files can be copied, not moved: deleting them comes later.");
@@ -131,6 +131,56 @@ export async function transfer(sources: Entry[] | { path: string; dir: boolean }
   }
   return done;
 }
+/**
+ * This PC's files into an app's folder over adb. A name already there is asked about as for any
+ * copy: Replace overwrites it (a folder is merged), Keep both lands a copy as `name (2)`, Skip
+ * leaves it. A move puts the originals in the Recycle Bin once they are copied.
+ */
+async function intoApp(items: { path: string; dir: boolean }[], dest: string, move: boolean, ask: Ask): Promise<number> {
+  if (items.some((s) => offPc(s.path))) throw new Error("Only files on this PC can be copied into an app's folder.");
+  const there = await adbList(dest);
+  const clash = new Map(clashes(items, there).map((c) => [c.source, c]));
+  let standing: Choice | null = null, standingFolders: Choice | null = null;
+  let asked = 0;
+  const send: string[] = [], staged: string[] = [];
+  const taken = there.map((e) => e.name);
+  let staging = "";
+  job = { label: `Copying ${items.length} item${items.length === 1 ? "" : "s"} into ${baseName(dest)}`, done: 0, total: items.length, current: "", cancelled: false };
+  notify();
+  try {
+    for (const s of items) {
+      const c = clash.get(s.path);
+      let choice: Choice = "replace";
+      if (c) {
+        const kept = c.folder ? standingFolders : standing;
+        if (kept) choice = kept;
+        else {
+          const a = await ask(c, clash.size - ++asked);
+          choice = a.choice;
+          if (a.forRest) { if (c.folder) standingFolders = choice; else standing = choice; }
+        }
+      }
+      if (choice === "skip") continue;
+      if (c && choice === "both") {
+        // Staged here under the new name, so the tar carries it under that name.
+        if (!staging) { staging = joinPath(await dataDir(), `to-adb-${Date.now().toString(36)}`); await fsCreateDir(await dataDir(), baseName(staging)); }
+        const name = keptName(c.name, taken);
+        taken.push(name);
+        const copy = await fsCopy(s.path, staging);
+        staged.push(await fsRename(copy, name));
+      } else send.push(s.path);
+    }
+    await adbPush([...send, ...staged], dest);
+    if (move) for (const p of send) await fsTrash(p);
+    return send.length + staged.length;
+  } finally {
+    job = null;
+    notify();
+    if (staging) await fsDelete(staging).catch(() => { /* left in this plugin's folder */ });
+    await Promise.all([dest, ...(move ? items.map((s) => parentOf(s.path) ?? "") : [])].filter(Boolean).map(relist));
+  }
+}
+
 const samePlace = (path: string, dest: string) => {
   const p = parentOf(path);
   return !!p && p.replace(/[\\/]+$/, "").toLowerCase() === dest.replace(/[\\/]+$/, "").toLowerCase();

@@ -4,9 +4,11 @@
 //
 // Every call is Deck's exec of adb, so nothing here is native code. Reading a file or a folder
 // goes through a tar the phone writes in /data/local/tmp (adb's shell may write there, the app may
-// not), pulled whole, which keeps binary files (an app's SQLite databases) intact.
-import { exec, fsDelete, fsHomeDir } from "../shim/bridge.js";
-import { adbAbs, adbParts, adbRoot, joinPath, type Entry } from "./logic";
+// not), pulled whole, which keeps binary files (an app's SQLite databases) intact. Copying in is
+// the same the other way: Windows' tar, pushed there, and unpacked by the app, so what lands is
+// the app's own.
+import { dataDir, exec, fsDelete, fsHomeDir } from "../shim/bridge.js";
+import { adbAbs, adbParts, adbRoot, baseName, joinPath, parentOf, type Entry } from "./logic";
 
 let exe: Promise<string> | null = null;
 /** adb on PATH, or Android Studio's, in the SDK's usual folder. */
@@ -28,6 +30,34 @@ function explain(err: string): string {
   if (m) return `${m[1]} is not a debug build: Android only lets adb read the files of an app that is debuggable.`;
   if (/is unknown|not found/i.test(err)) return "That app is not on the phone any more.";
   return err.trim() || "adb did not answer";
+}
+
+/**
+ * Copy files and folders of this PC into an app's folder `into`, each landing under its own name
+ * (a file staged under a new name for Keep both lands under that one). What is there already under
+ * the same name is overwritten, a folder merged: the caller asks first.
+ */
+export async function adbPush(paths: string[], into: string): Promise<void> {
+  const to = adbParts(into);
+  if (!to?.pkg) throw new Error("Files can be copied into an app's folder only");
+  // One tar per folder they are in: tar takes names relative to one folder.
+  const byParent = new Map<string, string[]>();
+  for (const p of paths) { const dir = parentOf(p) ?? ""; byParent.set(dir, [...(byParent.get(dir) ?? []), baseName(p)]); }
+  for (const [dir, names] of byParent) {
+    const local = joinPath(await dataDir(), `.deck-to-phone-${Date.now().toString(36)}.tar`);
+    const onPhone = `/data/local/tmp/deck-files-${Date.now().toString(36)}.tar`;
+    try {
+      const packed = (await exec("tar", ["cf", local, "-C", dir, ...names])) as { code: number; stderr: string };
+      if (packed.code !== 0) throw new Error(`the files could not be packed: ${packed.stderr.trim()}`);
+      await run(["-s", to.serial, "push", local, onPhone]);
+      // The adb shell reads the tar (the app may not) and hands it to the app's tar, which unpacks
+      // it as the app.
+      await run(["-s", to.serial, "shell", `run-as ${to.pkg} tar xf - -C ${q(adbAbs(to.pkg, to.rel))} < ${onPhone}`]);
+    } finally {
+      await run(["-s", to.serial, "shell", `rm -f ${onPhone}`]).catch(() => { /* gone with the phone */ });
+      await fsDelete(local).catch(() => { /* not packed */ });
+    }
+  }
 }
 
 /** One shell argument for the phone's sh, in double quotes. */

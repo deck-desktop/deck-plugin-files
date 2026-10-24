@@ -73,6 +73,12 @@ assert.equal(L.joinPath("C:\\", "Users"), String.raw`C:\Users`);
   assert.deepEqual(L.crumbs(app + "/databases").map((c) => c.label), ["R5CY207JF2V", "com.hassan171.wallet", "databases"]);
 }
 
+// Keep both, as Explorer names the copy.
+assert.equal(L.keptName("notes.txt", ["notes.txt"]), "notes (2).txt");
+assert.equal(L.keptName("notes.txt", ["notes.txt", "Notes (2).txt"]), "notes (3).txt");
+assert.equal(L.keptName("databases", ["databases"]), "databases (2)");
+assert.equal(L.keptName(".env", [".env"]), ".env (2)", "a dotfile is all stem");
+
 // Dragging files: a plain drop moves on the same drive or server and copies elsewhere; never into
 // one of the folders dragged, nor into the folder they are already in.
 assert.ok(L.sameVolume(String.raw`C:\a\x.txt`, "c:\\b"));

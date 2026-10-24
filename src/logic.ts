@@ -293,3 +293,11 @@ export function groupEntries(list: Entry[], by: GroupKey, now = Date.now()): Gro
     : ["Folder", ...[...groups.keys()].filter((k) => k !== "Folder").sort((a, b) => collator.compare(a, b))];
   return order.filter((k) => groups.has(k)).map((k) => ({ label: k, entries: groups.get(k)! }));
 }
+
+/** A name kept beside one already taken, as Explorer does it: `notes (2).txt`, then (3), and on. */
+export function keptName(name: string, taken: string[]): string {
+  const used = new Set(taken.map((t) => t.toLowerCase()));
+  const dot = name.lastIndexOf(".");
+  const [stem, ext] = dot > 0 ? [name.slice(0, dot), name.slice(dot)] : [name, ""];
+  for (let n = 2; ; n++) { const c = `${stem} (${n})${ext}`; if (!used.has(c.toLowerCase())) return c; }
+}
