@@ -11,9 +11,10 @@ import {
 } from "lucide-react";
 import { fsOpen, fsReveal, fsList } from "../shim/bridge.js";
 import {
-  ConfirmDialog, ContextMenu, NamePrompt, TabStrip, onKeys, openIn, openerFor, openersFor, toast, useResize, useScope,
+  ConfirmDialog, ContextMenu, NamePrompt, TabStrip, onKeys, openIn, openerFor, openersFor, useResize, useScope,
   type ConfirmState, type MenuEntry, type NamePromptState,
 } from "../shim/ui.js";
+import { notice, failure } from "./notice";
 import { applyDtCommand, openInEditor, switchWorkspace, workspaceByCwd } from "../shim/terminals.js";
 import { baseName, crumbs, groupEntries, isAdb, isDevice, isRemote, parentOf, previewKind, sizeLabel, sortEntries, typeAhead, type Clash, type Entry, type SortKey } from "./logic";
 import { nameOf, phoneCrumbs, relist, useListing } from "./folders";
@@ -118,7 +119,7 @@ function Explorer({ tab }: { tab: Tab }) {
 
   const fail = useCallback((what: string, e: unknown) => {
     console.warn(`[files] ${what}`, e);
-    toast(`${what}: ${String(e).replace(/^Error: /, "")}`, "error");
+    failure(what, String(e).replace(/^Error: /, ""));
   }, []);
 
   // A selection names paths in this folder; going elsewhere starts empty.
@@ -176,19 +177,19 @@ function Explorer({ tab }: { tab: Tab }) {
   // Files dropped from a drag go through this explorer's clash question and its messages, even when
   // the drag began in another tab of Files (drag.tsx).
   useEffect(() => {
-    setDropHost({ ask, fail, toast: (t: string) => toast(t, "success") });
+    setDropHost({ ask, fail });
     return () => setDropHost(null);
   }); // eslint-disable-line react-hooks/exhaustive-deps
   const run = (what: string, work: () => Promise<unknown>) => void work().catch((e) => fail(what, e));
-  const copyPaths = (paths: string[]) => run("Copying the path failed", () => navigator.clipboard.writeText(paths.join("\r\n")).then(() => toast(paths.length === 1 ? "Path copied" : `${paths.length} paths copied`, "success")));
-  const pasteHere = (into = cwd) => run("Pasting failed", async () => { const n = await paste(into, ask); if (n) toast(`${n} item${n === 1 ? "" : "s"} pasted`, "success"); });
+  const copyPaths = (paths: string[]) => run("Copying the path failed", () => navigator.clipboard.writeText(paths.join("\r\n")).then(() => notice(paths.length === 1 ? "Path copied" : `${paths.length} paths copied`)));
+  const pasteHere = (into = cwd) => run("Pasting failed", async () => { const n = await paste(into, ask); if (n) notice(`${n} item${n === 1 ? "" : "s"} pasted`); });
   const trash = (list: Entry[], forever = false) => {
     if (!list.length) return;
     const remote = isRemote(list[0].path) || isDevice(list[0].path) || isAdb(list[0].path);
     const what = list.length === 1 ? list[0].name : `${list.length} items`;
     const doIt = () => run("Deleting failed", async () => {
       await remove(list.map((e) => e.path), forever);
-      toast(forever || remote ? `${what} deleted` : `${what} moved to the Recycle Bin`, "success");
+      notice(forever || remote ? `${what} deleted` : `${what} moved to the Recycle Bin`);
       setSelected(new Set());
     });
     if (forever || remote) setConfirm({

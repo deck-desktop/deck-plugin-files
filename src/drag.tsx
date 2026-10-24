@@ -11,6 +11,7 @@ import { useSyncExternalStore } from "react";
 import { transfer, type Ask } from "./ops";
 import { getState, update } from "./store";
 import { baseName, canDrop, sameVolume } from "./logic";
+import { notice } from "./notice";
 
 /** A drop target names its folder in this attribute. */
 export const DROP = "data-drop-dir";
@@ -18,7 +19,7 @@ export const DROP = "data-drop-dir";
 export const TABS = "data-files-tabs";
 
 /** The explorer on screen, which asks about clashes and reports how it went. */
-export interface DropHost { ask: Ask; fail: (what: string, e: unknown) => void; toast: (text: string) => void }
+export interface DropHost { ask: Ask; fail: (what: string, e: unknown) => void }
 let host: DropHost | null = null;
 export const setDropHost = (h: DropHost | null) => { host = h; };
 
@@ -86,7 +87,7 @@ export function pressItem(ev: React.MouseEvent, items: () => { path: string; dir
     if (!dest || !host) return;
     const h = host;
     void transfer(was, dest, !copy, h.ask).then(
-      (n) => { if (n) h.toast(`${n} item${n === 1 ? "" : "s"} ${copy ? "copied" : "moved"} to ${baseName(dest)}`); },
+      (n) => { if (n) notice(`${n} item${n === 1 ? "" : "s"} ${copy ? "copied" : "moved"} to ${baseName(dest)}`); },
       (err) => h.fail(copy ? "Copying failed" : "Moving failed", err));
   };
   // Escape drops nothing.
