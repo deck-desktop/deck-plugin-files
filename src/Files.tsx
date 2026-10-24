@@ -4,7 +4,7 @@
 //
 // Opening a file goes where Deck opens that kind (Settings, Files: a .pdf in PDF, a page in the
 // browser, code in the Editor), and anything Deck has nothing for opens in Windows' own app.
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowLeft, ArrowRight, ArrowUp, ArrowUpDown, Check, ChevronDown, Columns2, FilePlus, FolderOpen, FolderPlus, LayoutGrid, List,
   PanelRight, Plus, RefreshCw, Search as SearchIcon, X,
@@ -72,6 +72,19 @@ function Explorer({ tab }: { tab: Tab }) {
   const [prompt, setPrompt] = useState<NamePromptState | null>(null);
   const [asking, setAsking] = useState<Asking | null>(null);
   const body = useRef<HTMLDivElement>(null);
+  // The path bar shows its end, the folder you are in, when the whole path does not fit; its start
+  // fades out and the wheel scrolls back to it.
+  const crumbBar = useRef<HTMLDivElement>(null);
+  const [crumbsClipped, setCrumbsClipped] = useState(false);
+  useLayoutEffect(() => {
+    const el = crumbBar.current;
+    if (!el) return;
+    const fit = () => { el.scrollLeft = el.scrollWidth; setCrumbsClipped(el.scrollWidth > el.clientWidth + 1); };
+    fit();
+    const ro = new (el.ownerDocument.defaultView ?? window).ResizeObserver(fit);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [cwd, editingPath]);
 
   const fail = useCallback((what: string, e: unknown) => {
     console.warn(`[files] ${what}`, e);
@@ -365,8 +378,10 @@ function Explorer({ tab }: { tab: Tab }) {
             onBlur={() => setEditingPath(false)}
             className="h-8 min-w-0 flex-1 rounded-lg border border-[var(--accent)] bg-elev px-2.5 text-[12.5px] text-text-primary outline-none" />
         ) : (
-          <div onClick={(ev) => { if (ev.target === ev.currentTarget) setEditingPath(true); }} title="Click to type a path"
-            className="flex h-8 min-w-0 flex-1 cursor-text items-center gap-0.5 overflow-hidden rounded-lg border border-subtle bg-elev px-1.5 text-[12.5px]">
+          <div ref={crumbBar} onClick={(ev) => { if (ev.target === ev.currentTarget) setEditingPath(true); }} title="Click to type a path"
+            onWheel={(ev) => { ev.currentTarget.scrollLeft += ev.deltaY || ev.deltaX; }}
+            className="flex h-8 min-w-0 flex-1 cursor-text items-center gap-0.5 overflow-hidden rounded-lg border border-subtle bg-elev px-1.5 text-[12.5px]"
+            style={crumbsClipped ? { maskImage: "linear-gradient(to right, transparent, black 28px)" } : undefined}>
             {crumbs(cwd).map((c, i, all) => (
               <span key={c.path} className="flex shrink-0 items-center">
                 {i > 0 && <span className="px-0.5 text-text-muted">›</span>}
