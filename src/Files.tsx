@@ -11,7 +11,7 @@ import {
 } from "lucide-react";
 import { fsOpen, fsReveal, fsList } from "../shim/bridge.js";
 import {
-  ConfirmDialog, ContextMenu, NamePrompt, TabStrip, onKeys, openIn, openerFor, openersFor, toast, useScope,
+  ConfirmDialog, ContextMenu, NamePrompt, TabStrip, onKeys, openIn, openerFor, openersFor, toast, useResize, useScope,
   type ConfirmState, type MenuEntry, type NamePromptState,
 } from "../shim/ui.js";
 import { applyDtCommand, openInEditor, switchWorkspace, workspaceByCwd } from "../shim/terminals.js";
@@ -25,6 +25,8 @@ import { Sidebar } from "./Sidebar";
 import { getState, loadState, newTab, update, updateTab, useFilesState, type Tab } from "./store";
 import { DROP, DragBadge, TABS, setDropHost } from "./drag";
 
+/** The edge a side pane is dragged by: a few pixels over the pane's border, lit while pointed at. */
+const splitter = "relative z-10 -mx-[3px] w-[6px] shrink-0 cursor-col-resize transition-colors hover:bg-[var(--accent)]";
 /** The toolbar's Sort and View: a word with an arrow, opening a menu, as Explorer's are. */
 const menuButton = "flex h-8 shrink-0 items-center gap-1.5 rounded-lg px-2.5 text-[12.5px] text-text-secondary transition-colors hover:bg-white/5 hover:text-text-primary";
 const tool = "grid size-8 shrink-0 place-items-center rounded-lg text-text-muted transition-colors hover:bg-white/5 hover:text-text-primary disabled:opacity-35 disabled:hover:bg-transparent";
@@ -78,6 +80,12 @@ function Explorer({ tab }: { tab: Tab }) {
   const [prompt, setPrompt] = useState<NamePromptState | null>(null);
   const [asking, setAsking] = useState<Asking | null>(null);
   const body = useRef<HTMLDivElement>(null);
+  // The sidebar and the preview pane are dragged wider or narrower by their inner edge; the width
+  // is kept for every tab once the drag ends.
+  const [sideW, sideDrag, sideDragging] = useResize({ initial: s.sidebarWidth ?? 224, min: 150, max: 420, direction: "horizontal" });
+  const [prevW, prevDrag, prevDragging] = useResize({ initial: s.previewWidth ?? 320, min: 220, max: 720, direction: "horizontal", invert: true });
+  useEffect(() => { if (!sideDragging && sideW !== (s.sidebarWidth ?? 224)) update({ sidebarWidth: sideW }); }, [sideDragging]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { if (!prevDragging && prevW !== (s.previewWidth ?? 320)) update({ previewWidth: prevW }); }, [prevDragging]); // eslint-disable-line react-hooks/exhaustive-deps
   // The path bar shows its end, the folder you are in, when the whole path does not fit; its start
   // fades out and the wheel scrolls back to it.
   const crumbBar = useRef<HTMLDivElement>(null);
@@ -426,7 +434,8 @@ function Explorer({ tab }: { tab: Tab }) {
       </div>
 
       <div className="flex min-h-0 flex-1">
-        <Sidebar cwd={cwd} pins={s.pins} onOpen={(p) => go(p)} fail={fail} />
+        <Sidebar cwd={cwd} pins={s.pins} onOpen={(p) => go(p)} fail={fail} width={sideW} />
+        <div {...sideDrag} title="Drag to resize" className={splitter} />
         <div ref={body} tabIndex={0} onKeyDown={onKeyDown} aria-label={baseName(cwd)}
           onMouseDown={(ev) => { if ((ev.target as HTMLElement).closest("[data-path]") === null && ev.button === 0) { setSelected(new Set()); setFocus(null); } }}
           className="flex min-w-0 flex-1 flex-col outline-none">
@@ -463,11 +472,12 @@ function Explorer({ tab }: { tab: Tab }) {
             )}
           </div>
         </div>
-        {s.preview && !searched && (
-          <Preview selected={chosen} cwd={cwd} onOpen={openEntry}
+        {s.preview && !searched && (<>
+          <div {...prevDrag} title="Drag to resize" className={splitter} />
+          <Preview selected={chosen} cwd={cwd} onOpen={openEntry} width={prevW}
             openWithMenu={(e, x, y) => setMenu({ x, y, items: openWith(e) })}
             onCopyPath={copyPaths} onReveal={(p) => run("Showing it failed", () => fsReveal(p))} />
-        )}
+        </>)}
       </div>
 
       {menu && <ContextMenu x={menu.x} y={menu.y} items={typeof menu.items === "function" ? menu.items() : menu.items} onClose={() => setMenu(null)} />}

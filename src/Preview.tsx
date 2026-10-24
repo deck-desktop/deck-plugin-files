@@ -49,8 +49,8 @@ function Big({ e }: { e: Pick<Entry, "name" | "dir"> }) {
   );
 }
 
-export function Preview({ selected, cwd, onOpen, openWithMenu, onCopyPath, onReveal }: {
-  selected: Entry[]; cwd: string;
+export function Preview({ selected, cwd, onOpen, openWithMenu, onCopyPath, onReveal, width }: {
+  selected: Entry[]; cwd: string; width: number;
   onOpen: (e: Entry) => void;
   openWithMenu: (e: Entry, x: number, y: number) => void;
   onCopyPath: (paths: string[]) => void;
@@ -68,7 +68,7 @@ export function Preview({ selected, cwd, onOpen, openWithMenu, onCopyPath, onRev
 
   const fact = (k: string, v: string) => v && (<><span className="text-text-muted">{k}</span><span className="break-all text-text-secondary">{v}</span></>);
   return (
-    <aside aria-label="Preview" className="scroll-thin flex w-80 shrink-0 flex-col gap-3 overflow-y-auto border-l border-subtle bg-panel p-4">
+    <aside aria-label="Preview" style={{ width }} className="scroll-thin flex shrink-0 flex-col gap-3 overflow-y-auto border-l border-subtle bg-panel p-4">
       {one ? <Shown key={one.path} e={one} /> : <Big e={{ name: baseName(cwd), dir: selected.length === 0 }} />}
       <div className="flex flex-col gap-0.5">
         <span className="break-all text-[14px] font-semibold text-text-primary">{one ? one.name : selected.length ? `${selected.length} items` : baseName(cwd)}</span>

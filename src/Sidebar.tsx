@@ -12,8 +12,8 @@ import { DROP } from "./drag";
 const row = "flex h-7 w-full items-center gap-2 rounded-md px-2 text-left text-[12.5px] transition-colors";
 const head = "px-2 pb-1 text-[11px] font-medium text-text-muted";
 
-export function Sidebar({ cwd, pins, onOpen, fail }: {
-  cwd: string; pins: Pin[]; onOpen: (path: string) => void; fail: (what: string, e: unknown) => void;
+export function Sidebar({ cwd, pins, onOpen, fail, width }: {
+  cwd: string; pins: Pin[]; onOpen: (path: string) => void; fail: (what: string, e: unknown) => void; width: number;
 }) {
   const [drives, setDrives] = useState<Drive[]>([]);
   const [hosts, setHosts] = useState<string[]>([]);
@@ -35,7 +35,7 @@ export function Sidebar({ cwd, pins, onOpen, fail }: {
   };
 
   return (
-    <nav aria-label="Places" className="scroll-thin flex w-56 shrink-0 flex-col gap-4 overflow-y-auto border-r border-subtle bg-panel px-2 py-3">
+    <nav aria-label="Places" style={{ width }} className="scroll-thin flex shrink-0 flex-col gap-4 overflow-y-auto border-r border-subtle bg-panel px-2 py-3">
       <div className="flex flex-col">
         <span className={head}>Pinned</span>
         {pins.map((p) => (

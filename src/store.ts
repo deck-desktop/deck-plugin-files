@@ -17,6 +17,9 @@ export interface State {
   preview: boolean;
   /** Thumbnail size in the grid, 1 (small) to 4. */
   gridSize: number;
+  /** The sidebar's and the preview pane's widths, as last dragged. */
+  sidebarWidth?: number;
+  previewWidth?: number;
 }
 
 const CONFIG = "files";
