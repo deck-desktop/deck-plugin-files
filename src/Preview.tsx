@@ -22,7 +22,7 @@ function Shown({ e }: { e: Entry }) {
   const kind = previewKind(e.name);
   const local = !isRemote(e.path);
   const [text, setText] = useState<string | null>(null);
-  const thumb = useThumb(e.path, e.mtimeMs, 512, local && kind === "pdf");
+  const thumb = useThumb(e.path, e.mtimeMs, 512, local && (kind === "pdf" || kind === "photo"));
   useEffect(() => {
     setText(null);
     if (kind !== "text" || e.size > TEXT_MAX) return;
@@ -34,7 +34,7 @@ function Shown({ e }: { e: Entry }) {
   const box = "flex h-56 shrink-0 items-center justify-center overflow-hidden rounded-xl border border-subtle bg-elev";
   if (kind === "image" && local) return <div className={box}><img src={convertFileSrc(e.path)} alt={e.name} className="max-h-full max-w-full object-contain" /></div>;
   if (kind === "media" && local) return <div className={box + " [&>*]:max-h-full"}><MediaViewer path={e.path} /></div>;
-  if (kind === "pdf" && thumb) return <div className={box}><img src={thumb} alt={e.name} className="max-h-full max-w-full object-contain" /></div>;
+  if ((kind === "pdf" || kind === "photo") && thumb) return <div className={box}><img src={thumb} alt={e.name} className="max-h-full max-w-full object-contain" /></div>;
   if (kind === "text" && e.size <= TEXT_MAX && text !== null)
     return <div className="h-72 shrink-0 overflow-hidden rounded-xl border border-subtle"><MonacoViewer content={text} language={LANG[extOf(e.name)] ?? "plaintext"} /></div>;
   return <Big e={e} />;

@@ -96,6 +96,7 @@ const TYPES: Record<string, string> = {
   ts: "TypeScript", tsx: "TypeScript", js: "JavaScript", jsx: "JavaScript", mjs: "JavaScript", cjs: "JavaScript",
   rs: "Rust", dart: "Dart", py: "Python", go: "Go", java: "Java", kt: "Kotlin", cs: "C#", cpp: "C++", c: "C", h: "C header",
   html: "HTML", htm: "HTML", css: "CSS", scss: "SCSS", sql: "SQL", sh: "Shell script", ps1: "PowerShell", bat: "Batch", cmd: "Batch",
+  heic: "HEIC image", heif: "HEIF image", avif: "AVIF image", tif: "TIFF image", tiff: "TIFF image",
   png: "PNG image", jpg: "JPEG image", jpeg: "JPEG image", gif: "GIF image", webp: "WebP image", svg: "SVG image", ico: "Icon", bmp: "Bitmap",
   mp4: "MP4 video", mov: "QuickTime video", mkv: "Matroska video", webm: "WebM video", mp3: "MP3 audio", wav: "WAV audio", flac: "FLAC audio", m4a: "M4A audio",
   pdf: "PDF document", doc: "Word document", docx: "Word document", xls: "Excel sheet", xlsx: "Excel sheet", ppt: "PowerPoint", pptx: "PowerPoint",
@@ -123,14 +124,18 @@ export function sizeLabel(bytes: number): string {
 export const freeLabel = (bytes: number) => `${sizeLabel(bytes)} free`;
 
 /** What the preview pane can show. */
-export type PreviewKind = "image" | "text" | "media" | "pdf" | "none";
+export type PreviewKind = "image" | "photo" | "text" | "media" | "pdf" | "none";
 const TEXT = new Set(["md", "txt", "json", "yaml", "yml", "toml", "xml", "csv", "ts", "tsx", "js", "jsx", "mjs", "cjs", "rs", "dart",
   "py", "go", "java", "kt", "cs", "cpp", "c", "h", "html", "htm", "css", "scss", "sql", "sh", "ps1", "bat", "cmd", "ini", "cfg", "log", "env", "gitignore"]);
 const IMAGES = new Set(["png", "jpg", "jpeg", "gif", "webp", "bmp", "ico", "svg"]);
+/** Pictures the page cannot draw but Windows can (with its HEIF extension, for HEIC): shown by the
+ *  shell's thumbnail, as a PDF's first page is. */
+const PHOTOS = new Set(["heic", "heif", "tif", "tiff", "dng", "cr2", "cr3", "nef", "arw", "raf", "orf", "rw2"]);
 const MEDIA = new Set(["mp4", "mov", "mkv", "webm", "mp3", "wav", "flac", "m4a", "ogg"]);
 export function previewKind(name: string): PreviewKind {
   const ext = extOf(name) || name.toLowerCase().replace(/^\./, "");
   if (IMAGES.has(ext)) return "image";
+  if (PHOTOS.has(ext)) return "photo";
   if (MEDIA.has(ext)) return "media";
   if (ext === "pdf") return "pdf";
   if (TEXT.has(ext)) return "text";
@@ -179,4 +184,16 @@ export function typeAhead(names: readonly string[], at: number, typed: string): 
 export function nameMatches(name: string, query: string): boolean {
   const n = name.toLowerCase();
   return query.toLowerCase().split(/\s+/).filter(Boolean).every((w) => n.includes(w));
+}
+
+/** Same drive (C: and C:), or the same server: where a plain drop moves rather than copies. */
+export function sameVolume(a: string, b: string): boolean {
+  const vol = (p: string) => (isRemote(p) ? p.slice(0, p.indexOf(":")) : p.slice(0, 2)).toLowerCase();
+  return vol(a) === vol(b);
+}
+
+/** Whether these files can be dropped into `dir`: not into one of themselves, nor where they are. */
+export function canDrop(items: { path: string }[], dir: string): boolean {
+  const norm = (p: string) => p.replace(/[\\/]+$/, "").toLowerCase();
+  return items.every((s) => !insideItself(s.path, dir) && norm(parentOf(s.path) ?? "") !== norm(dir));
 }

@@ -23,6 +23,17 @@ assert.equal(L.isRemote("D:/x"), false);
 assert.equal(L.isRemote("vps:/x"), true);
 
 assert.equal(L.joinPath("C:\\", "Users"), String.raw`C:\Users`);
+
+// Dragging files: a plain drop moves on the same drive or server and copies elsewhere; never into
+// one of the folders dragged, nor into the folder they are already in.
+assert.ok(L.sameVolume(String.raw`C:\a\x.txt`, "c:\\b"));
+assert.ok(!L.sameVolume(String.raw`C:\a\x.txt`, "D:\\b"));
+assert.ok(L.sameVolume("vps:/srv/a", "vps:/home"));
+assert.ok(!L.sameVolume("vps:/srv/a", "mac:/srv"));
+assert.ok(L.canDrop([{ path: String.raw`C:\a\x.txt` }], String.raw`C:\b`));
+assert.ok(!L.canDrop([{ path: String.raw`C:\a\x.txt` }], "C:\\A\\"), "where it already is, a trailing \\ and case aside");
+assert.ok(!L.canDrop([{ path: String.raw`C:\a` }], String.raw`C:\a\sub`), "into itself");
+assert.ok(!L.canDrop([{ path: String.raw`C:\a` }], String.raw`C:\a`), "onto itself");
 assert.equal(L.joinPath(String.raw`C:\Users`, "Hasan"), String.raw`C:\Users\Hasan`);
 assert.equal(L.joinPath("vps:/", "srv"), "vps:/srv");
 assert.equal(L.joinPath("vps:/srv", "x"), "vps:/srv/x");

@@ -7,6 +7,7 @@ import { fsDrives, remoteHome, sshHosts, type Drive } from "../shim/bridge.js";
 import { ContextMenu, IconButton, type MenuEntry } from "../shim/ui.js";
 import { freeLabel, samePath } from "./logic";
 import { update, type Pin } from "./store";
+import { DROP } from "./drag";
 
 const row = "flex h-7 w-full items-center gap-2 rounded-md px-2 text-left text-[12.5px] transition-colors";
 const head = "px-2 pb-1 text-[11px] font-medium text-text-muted";
@@ -38,7 +39,7 @@ export function Sidebar({ cwd, pins, onOpen, fail }: {
       <div className="flex flex-col">
         <span className={head}>Pinned</span>
         {pins.map((p) => (
-          <button key={p.path} onClick={() => onOpen(p.path)} onContextMenu={(e) => pinMenu(e, p)} title={p.path}
+          <button key={p.path} onClick={() => onOpen(p.path)} onContextMenu={(e) => pinMenu(e, p)} title={p.path} {...{ [DROP]: p.path }}
             className={row + (at(p.path) ? " bg-white/[0.07] text-text-primary" : " text-text-secondary hover:bg-white/5 hover:text-text-primary")}>
             <Star size={13} className="shrink-0 text-[var(--accent)]" />
             <span className="truncate">{p.name}</span>
@@ -56,7 +57,7 @@ export function Sidebar({ cwd, pins, onOpen, fail }: {
           const used = d.total ? 1 - d.free / d.total : 0;
           const name = d.label ? `${d.label} (${d.path.slice(0, 2)})` : d.kind === "network" ? `Network (${d.path.slice(0, 2)})` : `${d.path.slice(0, 2)}`;
           return (
-            <button key={d.path} onClick={() => onOpen(d.path)} title={d.path}
+            <button key={d.path} onClick={() => onOpen(d.path)} title={d.path} {...{ [DROP]: d.path }}
               className={"flex w-full flex-col gap-1 rounded-md px-2 py-1.5 text-left text-[12.5px] transition-colors " + (at(d.path) ? "bg-white/[0.07] text-text-primary" : "text-text-secondary hover:bg-white/5 hover:text-text-primary")}>
               <span className="flex w-full items-center gap-2">
                 {d.kind === "removable" ? <Usb size={13} className="shrink-0" /> : <HardDrive size={13} className="shrink-0" />}

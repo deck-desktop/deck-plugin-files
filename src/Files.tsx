@@ -23,6 +23,7 @@ import { Preview } from "./Preview";
 import { Search } from "./Search";
 import { Sidebar } from "./Sidebar";
 import { getState, loadState, newTab, update, updateTab, useFilesState, type Tab } from "./store";
+import { DROP, DragBadge, TABS, setDropHost } from "./drag";
 
 const tool = "grid size-8 shrink-0 place-items-center rounded-lg text-text-muted transition-colors hover:bg-white/5 hover:text-text-primary disabled:opacity-35 disabled:hover:bg-transparent";
 
@@ -39,7 +40,7 @@ export function Files() {
   useEffect(() => { void loadState().then(() => setReady(true)); }, []);
   const tab = s.tabs.find((t) => t.id === s.active) ?? s.tabs[0];
   if (!ready || !tab) return <div className="h-full bg-app" />;
-  return <Explorer key={tab.id} tab={tab} />;
+  return <><Explorer key={tab.id} tab={tab} /><DragBadge /></>;
 }
 
 function Explorer({ tab }: { tab: Tab }) {
@@ -112,6 +113,12 @@ function Explorer({ tab }: { tab: Tab }) {
   // ---- doing things ---------------------------------------------------------------------------
 
   const ask: Ask = (clash, rest) => new Promise((resolve) => setAsking({ clash, rest, resolve }));
+  // Files dropped from a drag go through this explorer's clash question and its messages, even when
+  // the drag began in another tab of Files (drag.tsx).
+  useEffect(() => {
+    setDropHost({ ask, fail, toast: (t: string) => toast(t, "success") });
+    return () => setDropHost(null);
+  }); // eslint-disable-line react-hooks/exhaustive-deps
   const run = (what: string, work: () => Promise<unknown>) => void work().catch((e) => fail(what, e));
   const copyPaths = (paths: string[]) => run("Copying the path failed", () => navigator.clipboard.writeText(paths.join("\r\n")).then(() => toast(paths.length === 1 ? "Path copied" : `${paths.length} paths copied`, "success")));
   const pasteHere = (into = cwd) => run("Pasting failed", async () => { const n = await paste(into, ask); if (n) toast(`${n} item${n === 1 ? "" : "s"} pasted`, "success"); });
@@ -156,8 +163,12 @@ function Explorer({ tab }: { tab: Tab }) {
       const next = new Set(selected);
       if (next.has(e.path)) next.delete(e.path); else next.add(e.path);
       setSelected(next); anchor.current = e.path;
-    } else { setSelected(new Set([e.path])); anchor.current = e.path; }
+    } else if (!(selected.has(e.path) && selected.size > 1)) { setSelected(new Set([e.path])); anchor.current = e.path; }
     setFocus(e.path);
+  };
+  const settle = (e: Entry, ev: MouseEvent) => {
+    if (ev.ctrlKey || ev.shiftKey) return;
+    setSelected(new Set([e.path])); anchor.current = e.path;
   };
   const focusAt = () => (focus ? entries.findIndex((x) => x.path === focus) : -1);
   const moveFocus = (by: number, extend: boolean) => {
@@ -292,6 +303,9 @@ function Explorer({ tab }: { tab: Tab }) {
     sort: tab.sort, asc: tab.asc,
     onSort: (k: SortKey) => updateTab(tab.id, k === tab.sort ? { asc: !tab.asc } : { sort: k, asc: true }),
     onPick: pick, onOpen: openEntry, onMenu: entryMenu, onRename,
+    onMarquee: (paths: Set<string>) => { setSelected(paths); setFocus(null); anchor.current = null; },
+    cwd, onSettle: settle,
+    dragItems: (e: Entry) => (selected.has(e.path) ? entries.filter((x) => selected.has(x.path)) : [e]),
   };
   const chosenSize = chosen.reduce((n, e) => n + e.size, 0);
 
@@ -301,6 +315,7 @@ function Explorer({ tab }: { tab: Tab }) {
       // down too: left to the webview, they would move its own history.
       onMouseDown={(ev) => { if (ev.button === 3 || ev.button === 4) ev.preventDefault(); }}
       onMouseUp={(ev) => { if (ev.button === 3) { ev.preventDefault(); back(); } else if (ev.button === 4) { ev.preventDefault(); forward(); } }}>
+      <div {...{ [TABS]: "" }} className="contents">
       <TabStrip chip
         tabs={s.tabs.map((t) => ({ id: t.id, title: baseName(t.path), icon: <FolderOpen size={13} className="text-text-muted" /> }))}
         activeId={tab.id}
@@ -317,6 +332,7 @@ function Explorer({ tab }: { tab: Tab }) {
           const [m] = tabs.splice(a, 1); tabs.splice(b, 0, m); return { tabs };
         })}
         onAdd={() => newTabAt(cwd)} addTitle="New tab here" />
+      </div>
 
       <div className="flex h-12 shrink-0 items-center gap-1.5 border-b border-subtle px-2.5">
         <button className={tool} title="Back (Alt+Left)" aria-label="Back" disabled={!h.back.length} onClick={back}><ArrowLeft size={16} /></button>
@@ -342,7 +358,7 @@ function Explorer({ tab }: { tab: Tab }) {
             {crumbs(cwd).map((c, i, all) => (
               <span key={c.path} className="flex shrink-0 items-center">
                 {i > 0 && <span className="px-0.5 text-text-muted">›</span>}
-                <button onClick={() => go(c.path)}
+                <button onClick={() => go(c.path)} {...{ [DROP]: c.path }}
                   className={"rounded px-1.5 py-0.5 hover:bg-white/5 " + (i === all.length - 1 ? "text-text-primary" : "text-text-secondary hover:text-text-primary")}>
                   {c.label}
                 </button>
