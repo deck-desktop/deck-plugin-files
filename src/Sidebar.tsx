@@ -55,9 +55,10 @@ export function Sidebar({ cwd, pins, onOpen, fail, width }: {
         </div>
         {drives.map((d) => {
           const used = d.total ? 1 - d.free / d.total : 0;
-          const name = d.label ? `${d.label} (${d.path.slice(0, 2)})` : d.kind === "network" ? `Network (${d.path.slice(0, 2)})` : `${d.path.slice(0, 2)}`;
+          // The letter only, as the path bar shows it; the label (New Volume) is its tooltip.
+          const name = d.path.slice(0, 2);
           return (
-            <button key={d.path} onClick={() => onOpen(d.path)} title={d.path} {...{ [DROP]: d.path }}
+            <button key={d.path} onClick={() => onOpen(d.path)} title={d.label ? `${d.label} (${d.path.slice(0, 2)})` : d.kind === "network" ? `Network drive ${d.path.slice(0, 2)}` : d.path} {...{ [DROP]: d.path }}
               className={"flex w-full flex-col gap-1 rounded-md px-2 py-1.5 text-left text-[12.5px] transition-colors " + (at(d.path) ? "bg-white/[0.07] text-text-primary" : "text-text-secondary hover:bg-white/5 hover:text-text-primary")}>
               <span className="flex w-full items-center gap-2">
                 {d.kind === "removable" ? <Usb size={13} className="shrink-0" /> : <HardDrive size={13} className="shrink-0" />}
