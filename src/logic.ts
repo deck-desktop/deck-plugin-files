@@ -197,3 +197,62 @@ export function canDrop(items: { path: string }[], dir: string): boolean {
   const norm = (p: string) => p.replace(/[\\/]+$/, "").toLowerCase();
   return items.every((s) => !insideItself(s.path, dir) && norm(parentOf(s.path) ?? "") !== norm(dir));
 }
+
+// ---- grouping ----------------------------------------------------------------------------------
+
+/** What the listing is grouped by (Sort, Group by), or nothing. */
+export type GroupKey = "name" | "date" | "type" | "size";
+export interface Group { label: string; entries: Entry[] }
+
+const DAY = 24 * 60 * 60 * 1000;
+/** Explorer's date groups, newest first: the label for `ms`, as seen at `now`. */
+function dateGroup(ms: number, now: number): string {
+  const d = new Date(now), today = new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+  const weekStart = today - ((d.getDay() + 6) % 7) * DAY; // weeks start on Monday
+  const monthStart = new Date(d.getFullYear(), d.getMonth(), 1).getTime();
+  const lastMonthStart = new Date(d.getFullYear(), d.getMonth() - 1, 1).getTime();
+  const yearStart = new Date(d.getFullYear(), 0, 1).getTime();
+  if (ms >= today) return "Today";
+  if (ms >= today - DAY) return "Yesterday";
+  if (ms >= weekStart) return "Earlier this week";
+  if (ms >= weekStart - 7 * DAY) return "Last week";
+  if (ms >= monthStart) return "Earlier this month";
+  if (ms >= lastMonthStart) return "Last month";
+  if (ms >= yearStart) return "Earlier this year";
+  return "A long time ago";
+}
+const DATE_ORDER = ["Today", "Yesterday", "Earlier this week", "Last week", "Earlier this month", "Last month", "Earlier this year", "A long time ago"];
+/** Explorer's size groups, by what a file weighs; a folder has no size of its own. */
+const SIZES: [number, string][] = [[0, "Empty (0 KB)"], [16 * 1024, "Tiny (0 - 16 KB)"], [1024 ** 2, "Small (16 KB - 1 MB)"],
+  [128 * 1024 ** 2, "Medium (1 - 128 MB)"], [1024 ** 3, "Large (128 MB - 1 GB)"], [4 * 1024 ** 3, "Huge (1 - 4 GB)"], [Infinity, "Gigantic (> 4 GB)"]];
+function sizeGroup(e: Entry): string {
+  if (e.dir) return "Folders";
+  return SIZES.find(([max]) => e.size <= max)![1];
+}
+/** Explorer's name groups: digits, three letter ranges, everything else. */
+function nameGroup(name: string): string {
+  const c = name.trim().charAt(0).toUpperCase();
+  if (/[0-9]/.test(c)) return "0 - 9";
+  if (c >= "A" && c <= "H") return "A - H";
+  if (c >= "I" && c <= "P") return "I - P";
+  if (c >= "Q" && c <= "Z") return "Q - Z";
+  return "Other";
+}
+
+/**
+ * The entries in groups, in the order the groups are shown; each group keeps the entries' order
+ * (the sort). Types are alphabetical with folders first; names, dates and sizes in their own order.
+ */
+export function groupEntries(list: Entry[], by: GroupKey, now = Date.now()): Group[] {
+  const label = by === "name" ? (e: Entry) => nameGroup(e.name)
+    : by === "date" ? (e: Entry) => dateGroup(e.mtimeMs, now)
+    : by === "size" ? sizeGroup
+    : (e: Entry) => typeLabel(e);
+  const groups = new Map<string, Entry[]>();
+  for (const e of list) { const k = label(e); const g = groups.get(k); if (g) g.push(e); else groups.set(k, [e]); }
+  const order = by === "date" ? DATE_ORDER
+    : by === "size" ? ["Folders", ...SIZES.map(([, l]) => l)]
+    : by === "name" ? ["0 - 9", "A - H", "I - P", "Q - Z", "Other"]
+    : ["Folder", ...[...groups.keys()].filter((k) => k !== "Folder").sort((a, b) => collator.compare(a, b))];
+  return order.filter((k) => groups.has(k)).map((k) => ({ label: k, entries: groups.get(k)! }));
+}

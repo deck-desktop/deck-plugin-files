@@ -6,8 +6,8 @@
 // browser, code in the Editor), and anything Deck has nothing for opens in Windows' own app.
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
-  ArrowLeft, ArrowRight, ArrowUp, ArrowUpDown, Check, ChevronDown, Columns2, FilePlus, FolderOpen, FolderPlus, LayoutGrid, List,
-  PanelRight, Plus, RefreshCw, Search as SearchIcon, X,
+  ArrowLeft, ArrowRight, ArrowUp, ArrowUpDown, Check, ChevronDown, Columns2, FolderOpen, LayoutGrid, List,
+  PanelRight, RefreshCw, Search as SearchIcon, X,
 } from "lucide-react";
 import { fsOpen, fsReveal, fsList } from "../shim/bridge.js";
 import {
@@ -15,7 +15,7 @@ import {
   type ConfirmState, type MenuEntry, type NamePromptState,
 } from "../shim/ui.js";
 import { applyDtCommand, openInEditor, switchWorkspace, workspaceByCwd } from "../shim/terminals.js";
-import { baseName, crumbs, isRemote, parentOf, previewKind, sizeLabel, sortEntries, typeAhead, type Clash, type Entry, type SortKey } from "./logic";
+import { baseName, crumbs, groupEntries, isRemote, parentOf, previewKind, sizeLabel, sortEntries, typeAhead, type Clash, type Entry, type SortKey } from "./logic";
 import { relist, useListing } from "./folders";
 import { cancelJob, clipboard, create, paste, remove, rename, setClipboard, useClipboard, useJob, type Ask, type Choice } from "./ops";
 import { Details, Grid } from "./Listing";
@@ -52,9 +52,15 @@ function Explorer({ tab }: { tab: Tab }) {
   const listing = useListing(cwd);
   const job = useJob();
   const clip = useClipboard();
+  // Grouped (Sort, Group by), the entries run group after group, so the keyboard, Shift-click and a
+  // dragged box follow the order on screen.
+  const groups = useMemo(() => {
+    const sorted = sortEntries(listing.entries.filter((e) => s.showHidden || !e.hidden), tab.sort, tab.asc);
+    return tab.group ? groupEntries(sorted, tab.group) : null;
+  }, [listing.entries, s.showHidden, tab.sort, tab.asc, tab.group]);
   const entries = useMemo(
-    () => sortEntries(listing.entries.filter((e) => s.showHidden || !e.hidden), tab.sort, tab.asc),
-    [listing.entries, s.showHidden, tab.sort, tab.asc]);
+    () => (groups ? groups.flatMap((g) => g.entries) : sortEntries(listing.entries.filter((e) => s.showHidden || !e.hidden), tab.sort, tab.asc)),
+    [groups, listing.entries, s.showHidden, tab.sort, tab.asc]);
 
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [focus, setFocus] = useState<string | null>(null);
@@ -263,7 +269,8 @@ function Explorer({ tab }: { tab: Tab }) {
     setMenu({ x: ev.clientX, y: ev.clientY, items: e ? items : () => { const live = getState(); return items.map((i) => (i !== "sep" && i.checked !== undefined ? { ...i, checked: live.showHidden } : i)); } });
   };
   // Explorer's Sort and View menus, under their buttons. The one in use is ticked; a pick closes
-  // the menu, as there. Hidden files, at the end of View, stays open to be flipped.
+  // the menu, as there. The two switches at the end of View stay open to be flipped. New
+  // folders and files are on the right-click menu (and Ctrl+Shift+N), not a button of their own.
   const under = (ev: React.MouseEvent) => { const r = (ev.currentTarget as HTMLElement).getBoundingClientRect(); return { x: r.left, y: r.bottom + 4 }; };
   const tick = (on: boolean) => (on ? "✓" : undefined);
   const sortMenu = (ev: React.MouseEvent) => setMenu({ ...under(ev), items: [
@@ -273,6 +280,13 @@ function Explorer({ tab }: { tab: Tab }) {
     "sep",
     { label: "Ascending", hint: tick(tab.asc), onClick: () => updateTab(tab.id, { asc: true }) },
     { label: "Descending", hint: tick(!tab.asc), onClick: () => updateTab(tab.id, { asc: false }) },
+    "sep",
+    { label: "Group by", children: [
+      ...([["name", "Name"], ["date", "Date modified"], ["type", "Type"], ["size", "Size"]] as const).map(([k, label]) => ({
+        label, hint: tick(tab.group === k), onClick: () => updateTab(tab.id, { group: k }),
+      } as MenuEntry)),
+      { label: "(None)", hint: tick(!tab.group), onClick: () => updateTab(tab.id, { group: undefined }) },
+    ] },
   ] });
   const viewMenu = (ev: React.MouseEvent) => setMenu({ ...under(ev), items: () => {
     const live = getState();
@@ -285,6 +299,7 @@ function Explorer({ tab }: { tab: Tab }) {
       } as MenuEntry)),
       { label: "Details", icon: List, hint: tick(tab.view === "details"), onClick: () => updateTab(tab.id, { view: "details" }) },
       "sep",
+      { label: "Preview pane", icon: PanelRight, checked: live.preview, onClick: () => update((st) => ({ preview: !st.preview })) },
       { label: "Hidden files", checked: live.showHidden, onClick: () => update((st) => ({ showHidden: !st.showHidden })) },
     ];
   } });
@@ -329,7 +344,7 @@ function Explorer({ tab }: { tab: Tab }) {
     onSort: (k: SortKey) => updateTab(tab.id, k === tab.sort ? { asc: !tab.asc } : { sort: k, asc: true }),
     onPick: pick, onOpen: openEntry, onMenu: entryMenu, onRename,
     onMarquee: (paths: Set<string>) => { setSelected(paths); setFocus(null); anchor.current = null; },
-    cwd, onSettle: settle,
+    cwd, onSettle: settle, groups,
     dragItems: (e: Entry) => (selected.has(e.path) ? entries.filter((x) => selected.has(x.path)) : [e]),
   };
   const chosenSize = chosen.reduce((n, e) => n + e.size, 0);
@@ -407,15 +422,6 @@ function Explorer({ tab }: { tab: Tab }) {
         <button className={menuButton} aria-haspopup="menu" onClick={sortMenu}><ArrowUpDown size={14} />Sort<ChevronDown size={12} className="text-text-muted" /></button>
         <button className={menuButton} aria-haspopup="menu" onClick={viewMenu}>
           {tab.view === "grid" ? <LayoutGrid size={14} /> : <List size={14} />}View<ChevronDown size={12} className="text-text-muted" />
-        </button>
-        <button className={tool} title="Preview pane" aria-label="Preview pane" aria-pressed={s.preview} onClick={() => update((st) => ({ preview: !st.preview }))}
-          style={s.preview ? { color: "var(--text-primary)" } : undefined}><PanelRight size={15} /></button>
-        <button onClick={(ev) => { const r = ev.currentTarget.getBoundingClientRect(); setMenu({ x: r.left, y: r.bottom + 4, items: [
-            { label: "Folder", icon: FolderPlus, hint: "Ctrl+Shift+N", onClick: () => newItem(true) },
-            { label: "File", icon: FilePlus, onClick: () => newItem(false) },
-          ] }); }}
-          className="flex h-8 shrink-0 items-center gap-1.5 rounded-lg px-3 text-[12.5px] font-medium text-white transition hover:brightness-110" style={{ background: "var(--accent)" }}>
-          <Plus size={14} />New
         </button>
       </div>
 

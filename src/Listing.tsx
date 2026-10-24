@@ -3,7 +3,8 @@
 import { useEffect, useRef, useState } from "react";
 import { ArrowDown, ArrowUp } from "lucide-react";
 import { FileIcon, themeById, useEditorSettings } from "../shim/ui.js";
-import { isRemote, previewKind, sizeLabel, typeLabel, type Entry, type SortKey } from "./logic";
+import { convertFileSrc } from "../shim/bridge.js";
+import { isRemote, previewKind, sizeLabel, typeLabel, type Entry, type Group, type SortKey } from "./logic";
 import { when } from "./Preview";
 import { useThumb } from "./thumbs";
 import { DROP, pressItem } from "./drag";
@@ -12,6 +13,8 @@ export interface ListProps {
   /** The folder shown: dropping files on the listing's empty space moves them here. */
   cwd: string;
   entries: Entry[];
+  /** The entries in groups (Sort, Group by), each under a heading; null when not grouped. */
+  groups: Group[] | null;
   selected: Set<string>;
   focus: string | null;
   cut: Set<string>;
@@ -38,6 +41,20 @@ const press = (p: ListProps, e: Entry, ev: React.MouseEvent, draggable = true) =
     pressItem(ev, () => p.dragItems(e), () => p.onSettle(e, at));
   }
 };
+/** A group's heading: its name, how many are in it, and a rule to the edge, as Explorer draws it. */
+function GroupHead({ g, first }: { g: Group; first: boolean }) {
+  return (
+    <div className={"flex items-center gap-2 px-2.5 pb-1 text-[12px] font-medium text-text-secondary " + (first ? "pt-1" : "pt-4")} style={{ gridColumn: "1 / -1" }}>
+      <span>{g.label}</span>
+      <span className="text-text-muted">{g.entries.length}</span>
+      <span className="h-px flex-1 bg-[var(--border-subtle,#30363d)]" />
+    </div>
+  );
+}
+/** The entries, or each group's heading followed by its entries. */
+const inGroups = (p: ListProps, draw: (e: Entry) => React.ReactNode) =>
+  p.groups ? p.groups.map((g, i) => [<GroupHead key={`g:${g.label}`} g={g} first={i === 0} />, ...g.entries.map(draw)]) : p.entries.map(draw);
+
 /** A folder entry is somewhere to drop files. */
 const dropDir = (e: Entry) => (e.dir ? { [DROP]: e.path } : {});
 
@@ -147,7 +164,7 @@ export function Details(p: ListProps) {
       <div role="grid" aria-label="Files" ref={marquee.ref} onMouseDown={marquee.onMouseDown} {...{ [DROP]: p.cwd }}
         className="scroll-thin relative min-h-0 flex-1 overflow-y-auto px-1.5 py-1"
         onContextMenu={(ev) => { if (ev.target === ev.currentTarget) { ev.preventDefault(); p.onMenu(null, ev); } }}>
-        {p.entries.map((e) => {
+        {inGroups(p, (e) => {
           const on = p.selected.has(e.path);
           return (
             <div key={e.path} role="row" aria-selected={on} data-path={e.path} {...dropDir(e)}
@@ -178,15 +195,19 @@ const TILE = [0, 96, 132, 180, 240];
 function Tile({ e, size, on, focus, dim, renaming, p }: { e: Entry; size: number; on: boolean; focus: boolean; dim: boolean; renaming: boolean; p: ListProps }) {
   const theme = themeById(useEditorSettings().iconTheme);
   const kind = previewKind(e.name);
-  const thumbable = !e.dir && !isRemote(e.path) && (kind === "image" || kind === "photo" || kind === "media" || kind === "pdf");
-  const url = useThumb(e.path, e.mtimeMs, Math.round(TILE[size] * 1.5), thumbable);
+  // An SVG is drawn as itself: Windows' thumbnail for one is only the file type's icon.
+  const svg = !e.dir && !isRemote(e.path) && /\.svg$/i.test(e.name);
+  const thumbable = !svg && !e.dir && !isRemote(e.path) && (kind === "image" || kind === "photo" || kind === "media" || kind === "pdf");
+  const thumb = useThumb(e.path, e.mtimeMs, Math.round(TILE[size] * 1.5), thumbable);
+  const url = svg ? `${convertFileSrc(e.path)}?v=${e.mtimeMs}` : thumb;
   return (
     <div role="gridcell" aria-selected={on} data-path={e.path} {...dropDir(e)}
       onMouseDown={(ev) => press(p, e, ev)} onDoubleClick={() => p.onOpen(e)}
       onContextMenu={(ev) => { ev.preventDefault(); p.onMenu(e, ev); }}
       className={"flex cursor-default select-none flex-col gap-1.5 rounded-lg p-1.5 "
         + (on ? "bg-[var(--accent-soft)]" : "hover:bg-white/5") + (focus ? " outline outline-1 outline-[var(--accent)]" : "") + (dim ? " opacity-55" : "")}>
-      <div className="grid place-items-center overflow-hidden rounded-md bg-elev" style={{ height: Math.round(TILE[size] * 0.75) }}>
+      <div className="grid place-items-center overflow-hidden rounded-md bg-elev"
+        style={{ height: Math.round(TILE[size] * 0.75), ...(svg && url ? { background: "repeating-conic-gradient(#e8e8e8 0 25%, #f8f8f8 0 50%) 0 0 / 16px 16px" } : {}) }}>
         {url ? <img src={url} alt="" className="max-h-full max-w-full object-contain" />
           : <FileIcon icon={e.dir ? theme.folder(e.name, false) : theme.file(e.name)} size={Math.round(TILE[size] / 3)} />}
       </div>
@@ -204,7 +225,7 @@ export function Grid(p: ListProps & { size: number }) {
       onContextMenu={(ev) => { if (ev.target === ev.currentTarget) { ev.preventDefault(); p.onMenu(null, ev); } }}>
       <div className="grid gap-2" style={{ gridTemplateColumns: `repeat(auto-fill, minmax(${TILE[p.size]}px, 1fr))` }}
         onContextMenu={(ev) => { if (ev.target === ev.currentTarget) { ev.preventDefault(); p.onMenu(null, ev); } }}>
-        {p.entries.map((e) => (
+        {inGroups(p, (e) => (
           <Tile key={e.path} e={e} size={p.size} on={p.selected.has(e.path)} focus={p.focus === e.path}
             dim={p.cut.has(e.path) || e.hidden} renaming={p.renaming === e.path} p={p} />
         ))}

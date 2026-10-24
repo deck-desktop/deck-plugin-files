@@ -4,10 +4,10 @@
 // performance rule 3: every write wakes every config listener).
 import { useSyncExternalStore } from "react";
 import { configRead, configWrite, fsHomeDir } from "../shim/bridge.js";
-import type { SortKey } from "./logic";
+import type { GroupKey, SortKey } from "./logic";
 
 export type View = "details" | "grid";
-export interface Tab { id: string; path: string; view: View; sort: SortKey; asc: boolean }
+export interface Tab { id: string; path: string; view: View; sort: SortKey; asc: boolean; group?: GroupKey }
 export interface Pin { path: string; name: string }
 export interface State {
   tabs: Tab[];

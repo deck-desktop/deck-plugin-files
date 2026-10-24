@@ -24,6 +24,23 @@ assert.equal(L.isRemote("vps:/x"), true);
 
 assert.equal(L.joinPath("C:\\", "Users"), String.raw`C:\Users`);
 
+// Grouping, as Explorer's Group by: groups in their own order, each keeping the sort's order.
+{
+  const now = new Date(2026, 9, 24, 12).getTime(); // a Saturday
+  const f = (name, mtimeMs, size = 1, dir = false) => ({ name, path: "C:\\x\\" + name, dir, mtimeMs, size, hidden: false });
+  const day = 24 * 60 * 60 * 1000;
+  const list = [f("today.txt", now - 1000), f("old.txt", new Date(2020, 0, 1).getTime()), f("yday.txt", now - day), f("mon.txt", new Date(2026, 9, 19, 9).getTime()), f("lastweek.txt", new Date(2026, 9, 14).getTime())];
+  assert.deepEqual(L.groupEntries(list, "date", now).map((g) => [g.label, g.entries.map((e) => e.name)]), [
+    ["Today", ["today.txt"]], ["Yesterday", ["yday.txt"]], ["Earlier this week", ["mon.txt"]], ["Last week", ["lastweek.txt"]], ["A long time ago", ["old.txt"]],
+  ]);
+  assert.deepEqual(L.groupEntries([f("b.md", 0), f("dir", 0, 0, true), f("a.txt", 0), f("c.md", 0)], "type").map((g) => [g.label, g.entries.length]),
+    [["Folder", 1], ["Markdown", 2], ["Text", 1]], "folders first, then types alphabetically");
+  assert.deepEqual(L.groupEntries([f("big", 0, 2 * 1024 ** 3), f("empty", 0, 0), f("d", 0, 0, true), f("s", 0, 100 * 1024)], "size").map((g) => g.label),
+    ["Folders", "Empty (0 KB)", "Small (16 KB - 1 MB)", "Huge (1 - 4 GB)"]);
+  assert.deepEqual(L.groupEntries([f("zed", 0), f("1st", 0), f("_x", 0), f("apple", 0), f("Mango", 0)], "name").map((g) => g.label),
+    ["0 - 9", "A - H", "I - P", "Q - Z", "Other"]);
+}
+
 // Dragging files: a plain drop moves on the same drive or server and copies elsewhere; never into
 // one of the folders dragged, nor into the folder they are already in.
 assert.ok(L.sameVolume(String.raw`C:\a\x.txt`, "c:\\b"));
