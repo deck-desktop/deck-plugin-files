@@ -24,6 +24,7 @@ import { Search } from "./Search";
 import { Sidebar } from "./Sidebar";
 import { getState, loadState, newTab, update, updateTab, useFilesState, type Tab } from "./store";
 import { DROP, DragBadge, TABS, setDropHost } from "./drag";
+import { opensInFloat } from "./openin";
 
 /** The edge a side pane is dragged by: a few pixels over the pane's border, lit while pointed at. */
 const splitter = "relative z-10 -mx-[3px] w-[6px] shrink-0 cursor-col-resize transition-colors hover:bg-[var(--accent)]";
@@ -142,10 +143,17 @@ function Explorer({ tab }: { tab: Tab }) {
     // A phone's file has no path an app can open: copied to this PC first, then opened like any other.
     if (isDevice(e.path) || isAdb(e.path)) { run(`Opening ${e.name} failed`, async () => openEntry({ ...e, path: await fromPhone(e) })); return; }
     const to = openerFor(e.path);
+    // A kind Deck has nothing for (a .docx, an .exe) opens in Windows' own app, wherever the rest go.
+    if (to === "editor" && previewKind(e.name) === "none" && !isRemote(e.path)) {
+      void fsOpen(e.path).catch((err: unknown) => fail(`Opening ${e.name} failed`, err));
+      return;
+    }
+    // Settings › Where things open, Files opened from Files: a floating window of its own, the
+    // Editor or the tab its type opens in (a picture in Gallery, a .pdf in PDF), as a file clicked
+    // in a terminal goes there.
+    if (opensInFloat()) { window.dispatchEvent(new CustomEvent("deck-term-open", { detail: { path: e.path, float: true } })); return; }
     if (to !== "editor") { openIn(e.path, to); return; }
-    const kind = previewKind(e.name);
-    if (kind !== "none" || isRemote(e.path)) { openInEditor(e.path); return; }
-    void fsOpen(e.path).catch((err: unknown) => fail(`Opening ${e.name} failed`, err));
+    openInEditor(e.path);
   };
 
   const openWith = (e: Entry): MenuEntry[] => {

@@ -2,6 +2,9 @@
 import { Files } from "./Files";
 import { clearListings } from "./folders";
 import { clearThumbs } from "./thumbs";
+import { stopOpenIn } from "./openin";
+
+export { settings } from "./openin";
 
 export default Files;
 export const PaneView = Files;
@@ -28,6 +31,7 @@ export const keybindings = () => [
 
 /** Before a reload re-imports the plugin: the thumbnails' blob URLs are released. */
 export function dispose() {
+  stopOpenIn();
   clearThumbs();
   clearListings();
 }
