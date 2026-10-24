@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { ArrowDown, ArrowUp } from "lucide-react";
 import { FileIcon, themeById, useEditorSettings } from "../shim/ui.js";
 import { convertFileSrc } from "../shim/bridge.js";
-import { isRemote, previewKind, sizeLabel, typeLabel, type Entry, type Group, type SortKey } from "./logic";
+import { isDevice, isRemote, previewKind, sizeLabel, typeLabel, type Entry, type Group, type SortKey } from "./logic";
 import { when } from "./Preview";
 import { useThumb } from "./thumbs";
 import { DROP, pressItem } from "./drag";
@@ -196,7 +196,7 @@ function Tile({ e, size, on, focus, dim, renaming, p }: { e: Entry; size: number
   const theme = themeById(useEditorSettings().iconTheme);
   const kind = previewKind(e.name);
   // An SVG is drawn as itself: Windows' thumbnail for one is only the file type's icon.
-  const svg = !e.dir && !isRemote(e.path) && /\.svg$/i.test(e.name);
+  const svg = !e.dir && !isRemote(e.path) && !isDevice(e.path) && /\.svg$/i.test(e.name);
   const thumbable = !svg && !e.dir && !isRemote(e.path) && (kind === "image" || kind === "photo" || kind === "media" || kind === "pdf");
   const thumb = useThumb(e.path, e.mtimeMs, Math.round(TILE[size] * 1.5), thumbable);
   const url = svg ? `${convertFileSrc(e.path)}?v=${e.mtimeMs}` : thumb;

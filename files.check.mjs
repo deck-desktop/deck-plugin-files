@@ -41,6 +41,22 @@ assert.equal(L.joinPath("C:\\", "Users"), String.raw`C:\Users`);
     ["0 - 9", "A - H", "I - P", "Q - Z", "Other"]);
 }
 
+// A phone, as Windows' shell names it: the device has no parent, each folder the one before it.
+{
+  const phone = String.raw`::{20D04FE0-3AEA-1069-A2D8-08002B30309D}\\\?\usb#vid_04e8&pid_6860&ms_comp_mtp&samsung_android#6&2ce7b1e7&1&0000#{6ac27878-a6fa-4155-ba85-f98f491d4f33}`;
+  const storage = phone + String.raw`\SID-{10001,,234073620480}`;
+  const pics = storage + String.raw`\{00000123-0000-0000-0000-000000000000}`;
+  assert.ok(L.isDevice(phone) && L.isDevice(pics) && !L.isDevice("C:\\x"));
+  assert.ok(!L.isRemote(phone), "a phone is not a server");
+  assert.equal(L.deviceRoot(pics), phone);
+  assert.equal(L.parentOf(phone), null);
+  assert.equal(L.parentOf(storage), phone);
+  assert.equal(L.parentOf(pics), storage);
+  assert.ok(L.sameVolume(pics, storage), "within a phone a drop moves");
+  assert.ok(!L.sameVolume(pics, "C:\\x"), "between a phone and this PC it copies");
+  assert.ok(!L.canDrop([{ path: pics + "\\{1}" }], pics), "where it already is");
+}
+
 // Dragging files: a plain drop moves on the same drive or server and copies elsewhere; never into
 // one of the folders dragged, nor into the folder they are already in.
 assert.ok(L.sameVolume(String.raw`C:\a\x.txt`, "c:\\b"));

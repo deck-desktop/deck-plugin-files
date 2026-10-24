@@ -1,13 +1,15 @@
-// What the explorer does to files: copy, move, the Recycle Bin, delete, rename, new. Each item is
-// one of Deck's fs calls, so progress is per item: a big folder is one call, and shows as one step.
+// What the explorer does to files: copy, move, the Recycle Bin, delete, rename, new.
 //
-// A name already taken in the folder being copied into is asked about once per clash (Replace,
-// Keep both, Skip; a folder only Keep both or Skip, since a copy cannot merge two folders), with
-// "the same for the rest". Copying between this PC and a server is refused: each fs call works on
-// one side.
+// A copy or move on this PC, or to, from or within a phone, is Windows' own (Deck's shellTransfer):
+// a long one shows Windows' progress, with the time left, pause and cancel, and a name already
+// there is asked about in Windows' question, as in Explorer. A server's folders are Deck's fs calls,
+// one per item, so progress there is per item; a name already taken is asked about once per clash
+// (Replace, Keep both, Skip; a folder only Keep both or Skip, since a copy cannot merge two
+// folders), with "the same for the rest". Copying between this PC and a server is refused: each fs
+// call works on one side.
 import { useSyncExternalStore } from "react";
-import { fsCopy, fsCreateDir, fsCreateFile, fsDelete, fsList, fsMove, fsRename, fsTrash } from "../shim/bridge.js";
-import { baseName, clashes, insideItself, isRemote, joinPath, parentOf, type Clash, type Entry } from "./logic";
+import { dataDir, fsCopy, fsCreateDir, fsCreateFile, fsDelete, fsList, fsMove, fsRename, fsTrash, shellDelete, shellNewFolder, shellRename, shellTransfer } from "../shim/bridge.js";
+import { baseName, clashes, insideItself, isDevice, isRemote, joinPath, parentOf, type Clash, type Entry } from "./logic";
 import { relist } from "./folders";
 
 // ---- the clipboard -----------------------------------------------------------------------------
@@ -40,6 +42,22 @@ export async function transfer(sources: Entry[] | { path: string; dir: boolean }
   if (job) throw new Error("Another copy is still running.");
   const items = [...sources];
   if (items.some((s) => insideItself(s.path, dest))) throw new Error("A folder cannot be copied or moved into itself.");
+  const server = isRemote(dest) || items.some((s) => isRemote(s.path));
+  if (server && (isDevice(dest) || items.some((s) => isDevice(s.path)))) throw new Error("Copying between a server and a phone is not possible here.");
+  // On this PC, or to, from or within a phone: Windows' own copy, so none of the steps below.
+  if (!server) {
+    const todo = move ? items.filter((s) => !samePlace(s.path, dest)) : items;
+    if (!todo.length) return 0;
+    job = { label: `${move ? "Moving" : "Copying"} ${todo.length} item${todo.length === 1 ? "" : "s"}`, done: 0, total: todo.length, current: "", cancelled: false };
+    notify();
+    try {
+      return (await shellTransfer(todo.map((s) => s.path), dest, move)) ? todo.length : 0;
+    } finally {
+      job = null;
+      notify();
+      await Promise.all([...new Set([dest, ...todo.map((s) => parentOf(s.path) ?? "")])].filter(Boolean).map(relist));
+    }
+  }
   if (items.some((s) => isRemote(s.path) !== isRemote(dest))) throw new Error("Copying between this PC and a server is not possible here yet.");
   // Moving a file into the folder it is already in does nothing.
   const todo = move ? items.filter((s) => !samePlace(s.path, dest)) : items;
@@ -101,14 +119,31 @@ export async function paste(dest: string, ask: Ask): Promise<number> {
   return n;
 }
 
+/**
+ * A phone's file, copied into this plugin's folder to be opened (a phone's files have no path an
+ * app can open). Replaces the copy made last time. Returns the copy's path.
+ */
+export async function fromPhone(e: { path: string; name: string }): Promise<string> {
+  const base = await dataDir();
+  const dir = joinPath(base, "from-phone");
+  await fsCreateDir(base, "from-phone").catch(() => { /* there already */ });
+  const local = joinPath(dir, e.name);
+  await fsDelete(local).catch(() => { /* none yet */ });
+  if (!(await shellTransfer([e.path], dir, false))) throw new Error("the copy was cancelled");
+  return local;
+}
+
 /** Into the Recycle Bin (on this PC), or deleted for good (on a server, which has none). */
 export async function remove(paths: string[], forever: boolean): Promise<void> {
-  for (const p of paths) await (forever || isRemote(p) ? fsDelete(p) : fsTrash(p));
+  // A phone has no Recycle Bin: for good, and asked about first (Files.tsx).
+  const phone = paths.filter(isDevice);
+  if (phone.length) await shellDelete(phone);
+  for (const p of paths.filter((x) => !isDevice(x))) await (forever || isRemote(p) ? fsDelete(p) : fsTrash(p));
   await Promise.all([...new Set(paths.map((p) => parentOf(p) ?? ""))].filter(Boolean).map(relist));
 }
 
 export async function rename(path: string, name: string): Promise<string> {
-  const to = await fsRename(path, name);
+  const to = isDevice(path) ? (await shellRename(path, name), path) : await fsRename(path, name);
   const dir = parentOf(path);
   if (dir) await relist(dir);
   return to;
@@ -116,7 +151,8 @@ export async function rename(path: string, name: string): Promise<string> {
 
 /** A new folder or empty file in `dir`, named `name`. Returns its path. */
 export async function create(dir: string, name: string, folder: boolean): Promise<string> {
-  const at = await (folder ? fsCreateDir(dir, name) : fsCreateFile(dir, name));
+  if (isDevice(dir) && !folder) throw new Error("A new file cannot be made on a phone: make it on this PC and copy it over.");
+  const at = isDevice(dir) ? (await shellNewFolder(dir, name), "") : await (folder ? fsCreateDir(dir, name) : fsCreateFile(dir, name));
   await relist(dir);
   return at;
 }

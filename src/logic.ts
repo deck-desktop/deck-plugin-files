@@ -14,8 +14,22 @@ export interface Entry { name: string; path: string; dir: boolean; mtimeMs: numb
 const REMOTE = /^([A-Za-z0-9._@-]{2,})(\+sudo)?:(\/.*)$/;
 export const isRemote = (p: string) => REMOTE.test(p);
 
+// A phone's or camera's folder, as Windows' shell names it (Deck's shellList): the device is
+// `::{This PC}\\\?\usb#…#{…}`, and below it come `\SID-{…}` and `\{object id}` parts. The parts
+// are the device's ids, not names: a title or a breadcrumb asks Deck for the names (shellParents).
+export const isDevice = (p: string) => p.startsWith("::{");
+const DEVICE_ROOT = /^::\{[^}]+\}\\\\\\\?\\[^\\]+/;
+/** The device a phone path is on: its top, which has no parent. */
+export const deviceRoot = (p: string) => DEVICE_ROOT.exec(p)?.[0] ?? null;
+
 /** The folder holding `p`, or null at a top: a drive, a share, a server's `/`. */
 export function parentOf(p: string): string | null {
+  if (isDevice(p)) {
+    const root = deviceRoot(p);
+    if (!root || p.length <= root.length) return null;
+    const at = p.lastIndexOf("\\");
+    return at >= root.length ? p.slice(0, at) : root;
+  }
   const r = REMOTE.exec(p);
   if (r) {
     const path = r[3].replace(/\/+$/, "");

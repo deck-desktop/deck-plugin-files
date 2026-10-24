@@ -15,9 +15,9 @@ import {
   type ConfirmState, type MenuEntry, type NamePromptState,
 } from "../shim/ui.js";
 import { applyDtCommand, openInEditor, switchWorkspace, workspaceByCwd } from "../shim/terminals.js";
-import { baseName, crumbs, groupEntries, isRemote, parentOf, previewKind, sizeLabel, sortEntries, typeAhead, type Clash, type Entry, type SortKey } from "./logic";
-import { relist, useListing } from "./folders";
-import { cancelJob, clipboard, create, paste, remove, rename, setClipboard, useClipboard, useJob, type Ask, type Choice } from "./ops";
+import { baseName, crumbs, groupEntries, isDevice, isRemote, parentOf, previewKind, sizeLabel, sortEntries, typeAhead, type Clash, type Entry, type SortKey } from "./logic";
+import { nameOf, phoneCrumbs, relist, useListing } from "./folders";
+import { cancelJob, clipboard, create, fromPhone, paste, remove, rename, setClipboard, useClipboard, useJob, type Ask, type Choice } from "./ops";
 import { Details, Grid } from "./Listing";
 import { Preview } from "./Preview";
 import { Search } from "./Search";
@@ -100,6 +100,18 @@ function Explorer({ tab }: { tab: Tab }) {
     return () => ro.disconnect();
   }, [cwd, editingPath]);
 
+  const phone = isDevice(cwd);
+  const [phonePath, setPhonePath] = useState<{ label: string; path: string }[] | null>(null);
+  useEffect(() => {
+    setPhonePath(null);
+    if (!phone) return;
+    let live = true;
+    void phoneCrumbs(cwd).then((list) => { if (live) setPhonePath(list.map((c) => ({ label: c.name, path: c.path }))); },
+      (e: unknown) => console.warn("[files] the phone's folder names could not be read", e));
+    return () => { live = false; };
+  }, [cwd, phone]);
+  const pathCrumbs = phone ? phonePath ?? [{ label: nameOf(cwd), path: cwd }] : crumbs(cwd);
+
   const fail = useCallback((what: string, e: unknown) => {
     console.warn(`[files] ${what}`, e);
     toast(`${what}: ${String(e).replace(/^Error: /, "")}`, "error");
@@ -124,6 +136,8 @@ function Explorer({ tab }: { tab: Tab }) {
   /** Open a file the way Deck would, or in Windows' app when Deck has nothing for its kind. */
   const openEntry = (e: Entry) => {
     if (e.dir) return go(e.path);
+    // A phone's file has no path an app can open: copied to this PC first, then opened like any other.
+    if (isDevice(e.path)) { run(`Opening ${e.name} failed`, async () => openEntry({ ...e, path: await fromPhone(e) })); return; }
     const to = openerFor(e.path);
     if (to !== "editor") { openIn(e.path, to); return; }
     const kind = previewKind(e.name);
@@ -132,6 +146,12 @@ function Explorer({ tab }: { tab: Tab }) {
   };
 
   const openWith = (e: Entry): MenuEntry[] => {
+    if (isDevice(e.path)) {
+      // Chosen by its name (a phone path has no extension), and opened from a copy on this PC.
+      return openersFor(e.name).map((o) => ({
+        label: o.label, onClick: () => run(`Opening ${e.name} failed`, async () => { const p = await fromPhone(e); if (!openIn(p, o.to)) openInEditor(p); }),
+      }));
+    }
     const items: MenuEntry[] = openersFor(e.path).map((o) => ({
       label: o.label, onClick: () => { if (!openIn(e.path, o.to)) openInEditor(e.path); },
     }));
@@ -153,7 +173,7 @@ function Explorer({ tab }: { tab: Tab }) {
   const pasteHere = (into = cwd) => run("Pasting failed", async () => { const n = await paste(into, ask); if (n) toast(`${n} item${n === 1 ? "" : "s"} pasted`, "success"); });
   const trash = (list: Entry[], forever = false) => {
     if (!list.length) return;
-    const remote = isRemote(list[0].path);
+    const remote = isRemote(list[0].path) || isDevice(list[0].path);
     const what = list.length === 1 ? list[0].name : `${list.length} items`;
     const doIt = () => run("Deleting failed", async () => {
       await remove(list.map((e) => e.path), forever);
@@ -162,7 +182,8 @@ function Explorer({ tab }: { tab: Tab }) {
     });
     if (forever || remote) setConfirm({
       title: `Delete ${what} for good?`,
-      body: remote ? "A server has no Recycle Bin: this cannot be undone." : "It skips the Recycle Bin, so it cannot be undone.",
+      body: isDevice(list[0].path) ? "A phone has no Recycle Bin: this cannot be undone."
+        : remote ? "A server has no Recycle Bin: this cannot be undone." : "It skips the Recycle Bin, so it cannot be undone.",
       confirmLabel: "Delete", onConfirm: doIt,
     });
     else doIt();
@@ -244,15 +265,16 @@ function Explorer({ tab }: { tab: Tab }) {
   const entryMenu = (e: Entry | null, ev: React.MouseEvent) => {
     ev.preventDefault();
     const list = e ? (selected.has(e.path) ? chosen : [e]) : [];
-    const remote = isRemote(cwd);
+    // A server's and a phone's folders: no Recycle Bin, no Explorer window, no workspace.
+    const remote = isRemote(cwd) || phone;
     const items: MenuEntry[] = e ? [
       { label: "Open", hint: "Enter", onClick: () => openEntry(e) },
       ...(e.dir ? [
         { label: "Open in a new tab", onClick: () => newTabAt(e.path) },
         // A folder already open as a workspace is switched to rather than opened twice.
-        workspaceByCwd(e.path)
+        ...(phone ? [] : [workspaceByCwd(e.path)
           ? { label: "Go to its workspace", onClick: () => switchWorkspace(workspaceByCwd(e.path)!.id) }
-          : { label: "Open as a workspace", onClick: () => applyDtCommand("new-workspace", { cwd: e.path }) },
+          : { label: "Open as a workspace", onClick: () => applyDtCommand("new-workspace", { cwd: e.path }) }]),
       ] as MenuEntry[] : [{ label: "Open with", children: openWith(e) } as MenuEntry]),
       "sep",
       { label: "Copy", hint: "Ctrl+C", onClick: () => setClipboard(list.map((x) => x.path), false) },
@@ -365,7 +387,7 @@ function Explorer({ tab }: { tab: Tab }) {
       onMouseUp={(ev) => { if (ev.button === 3) { ev.preventDefault(); back(); } else if (ev.button === 4) { ev.preventDefault(); forward(); } }}>
       <div {...{ [TABS]: "" }} className="contents">
       <TabStrip chip
-        tabs={s.tabs.map((t) => ({ id: t.id, title: baseName(t.path), icon: <FolderOpen size={13} className="text-text-muted" /> }))}
+        tabs={s.tabs.map((t) => ({ id: t.id, title: nameOf(t.path), icon: <FolderOpen size={13} className="text-text-muted" /> }))}
         activeId={tab.id}
         onSelect={(id) => update({ active: id })}
         onClose={(id) => update((st) => {
@@ -405,7 +427,7 @@ function Explorer({ tab }: { tab: Tab }) {
             onWheel={(ev) => { ev.currentTarget.scrollLeft += ev.deltaY || ev.deltaX; }}
             className="flex h-8 min-w-0 flex-1 cursor-text items-center gap-0.5 overflow-hidden rounded-lg border border-subtle bg-elev px-1.5 text-[12.5px]"
             style={crumbsClipped ? { maskImage: "linear-gradient(to right, transparent, black 28px)" } : undefined}>
-            {crumbs(cwd).map((c, i, all) => (
+            {pathCrumbs.map((c, i, all) => (
               <span key={c.path} className="flex shrink-0 items-center">
                 {i > 0 && <span className="px-0.5 text-text-muted">›</span>}
                 <button onClick={() => go(c.path)} {...{ [DROP]: c.path }}
@@ -420,7 +442,7 @@ function Explorer({ tab }: { tab: Tab }) {
 
         <label className="flex h-8 w-64 shrink-0 items-center gap-2 rounded-lg border border-subtle bg-elev px-2.5 text-text-muted focus-within:border-[var(--accent)]">
           <SearchIcon size={14} className="shrink-0" />
-          <input id={`files-search-${tab.id}`} value={query} placeholder={`Search ${baseName(cwd)}`} aria-label="Search this folder"
+          <input id={`files-search-${tab.id}`} value={query} placeholder={phone ? "Search is not available on a phone" : `Search ${nameOf(cwd)}`} disabled={phone} aria-label="Search this folder"
             onChange={(ev) => { setQuery(ev.target.value); if (!ev.target.value) setSearched(""); }}
             onKeyDown={(ev) => { if (ev.key === "Enter") setSearched(query.trim()); if (ev.key === "Escape") { setQuery(""); setSearched(""); body.current?.focus(); } }}
             className="min-w-0 flex-1 bg-transparent text-[12.5px] text-text-primary outline-none placeholder:text-text-muted" />
@@ -436,7 +458,7 @@ function Explorer({ tab }: { tab: Tab }) {
       <div className="flex min-h-0 flex-1">
         <Sidebar cwd={cwd} pins={s.pins} onOpen={(p) => go(p)} fail={fail} width={sideW} />
         <div {...sideDrag} title="Drag to resize" className={splitter} />
-        <div ref={body} tabIndex={0} onKeyDown={onKeyDown} aria-label={baseName(cwd)}
+        <div ref={body} tabIndex={0} onKeyDown={onKeyDown} aria-label={nameOf(cwd)}
           onMouseDown={(ev) => { if ((ev.target as HTMLElement).closest("[data-path]") === null && ev.button === 0) { setSelected(new Set()); setFocus(null); } }}
           className="flex min-w-0 flex-1 flex-col outline-none">
           {searched ? (
@@ -445,7 +467,7 @@ function Explorer({ tab }: { tab: Tab }) {
               onOpenLine={(p, line) => openInEditor(p, line)} />
           ) : listing.error ? (
             <div className="p-6 text-[12.5px]">
-              <p className="text-red-400">{baseName(cwd)} could not be opened: {listing.error.replace(/^Error: /, "")}</p>
+              <p className="text-red-400">{nameOf(cwd)} could not be opened: {listing.error.replace(/^Error: /, "")}</p>
               {parentOf(cwd) && <button onClick={up} className="mt-2 text-[var(--accent)] hover:underline">Go up a folder</button>}
             </div>
           ) : !listing.loading && entries.length === 0 ? (
