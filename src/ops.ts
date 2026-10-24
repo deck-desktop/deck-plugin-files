@@ -9,7 +9,8 @@
 // call works on one side.
 import { useSyncExternalStore } from "react";
 import { dataDir, fsCopy, fsCreateDir, fsCreateFile, fsDelete, fsList, fsMove, fsRename, fsTrash, shellDelete, shellNewFolder, shellRename, shellTransfer } from "../shim/bridge.js";
-import { baseName, clashes, insideItself, isDevice, isRemote, joinPath, parentOf, type Clash, type Entry } from "./logic";
+import { baseName, clashes, insideItself, isAdb, isDevice, isRemote, joinPath, offPc, parentOf, type Clash, type Entry } from "./logic";
+import { adbPull } from "./adb";
 import { relist } from "./folders";
 
 // ---- the clipboard -----------------------------------------------------------------------------
@@ -42,6 +43,31 @@ export async function transfer(sources: Entry[] | { path: string; dir: boolean }
   if (job) throw new Error("Another copy is still running.");
   const items = [...sources];
   if (items.some((s) => insideItself(s.path, dest))) throw new Error("A folder cannot be copied or moved into itself.");
+  // An app's files over adb: copied to this PC only, so far. Unpacked into a folder of this
+  // plugin's first, then moved into place by Windows' copy, which asks about a name already there.
+  if (isAdb(dest)) throw new Error("Copying into an app's folder is not possible yet: copy from it to this PC.");
+  if (items.some((s) => isAdb(s.path))) {
+    if (offPc(dest)) throw new Error("An app's files can be copied to this PC only.");
+    if (move) throw new Error("An app's files can be copied, not moved: deleting them comes later.");
+    job = { label: `Copying ${items.length} item${items.length === 1 ? "" : "s"} from the phone`, done: 0, total: items.length, current: "", cancelled: false };
+    notify();
+    try {
+      const staging = joinPath(await dataDir(), `from-adb-${Date.now().toString(36)}`);
+      await fsCreateDir(await dataDir(), baseName(staging));
+      try {
+        await adbPull(items.map((s) => s.path), staging);
+        const pulled = items.map((s) => ({ path: joinPath(staging, baseName(s.path)), dir: s.dir }));
+        job = null;
+        return (await shellTransfer(pulled.map((s) => s.path), dest, true)) ? items.length : 0;
+      } finally {
+        await fsDelete(staging).catch(() => { /* moved out already */ });
+      }
+    } finally {
+      job = null;
+      notify();
+      await relist(dest);
+    }
+  }
   const server = isRemote(dest) || items.some((s) => isRemote(s.path));
   if (server && (isDevice(dest) || items.some((s) => isDevice(s.path)))) throw new Error("Copying between a server and a phone is not possible here.");
   // On this PC, or to, from or within a phone: Windows' own copy, so none of the steps below.
@@ -129,13 +155,15 @@ export async function fromPhone(e: { path: string; name: string }): Promise<stri
   await fsCreateDir(base, "from-phone").catch(() => { /* there already */ });
   const local = joinPath(dir, e.name);
   await fsDelete(local).catch(() => { /* none yet */ });
-  if (!(await shellTransfer([e.path], dir, false))) throw new Error("the copy was cancelled");
+  if (isAdb(e.path)) await adbPull([e.path], dir);
+  else if (!(await shellTransfer([e.path], dir, false))) throw new Error("the copy was cancelled");
   return local;
 }
 
 /** Into the Recycle Bin (on this PC), or deleted for good (on a server, which has none). */
 export async function remove(paths: string[], forever: boolean): Promise<void> {
   // A phone has no Recycle Bin: for good, and asked about first (Files.tsx).
+  if (paths.some(isAdb)) throw new Error("Deleting an app's files is not possible yet.");
   const phone = paths.filter(isDevice);
   if (phone.length) await shellDelete(phone);
   for (const p of paths.filter((x) => !isDevice(x))) await (forever || isRemote(p) ? fsDelete(p) : fsTrash(p));
@@ -143,6 +171,7 @@ export async function remove(paths: string[], forever: boolean): Promise<void> {
 }
 
 export async function rename(path: string, name: string): Promise<string> {
+  if (isAdb(path)) throw new Error("Renaming an app's files is not possible yet.");
   const to = isDevice(path) ? (await shellRename(path, name), path) : await fsRename(path, name);
   const dir = parentOf(path);
   if (dir) await relist(dir);
@@ -151,6 +180,7 @@ export async function rename(path: string, name: string): Promise<string> {
 
 /** A new folder or empty file in `dir`, named `name`. Returns its path. */
 export async function create(dir: string, name: string, folder: boolean): Promise<string> {
+  if (isAdb(dir)) throw new Error("Making something in an app's folder is not possible yet.");
   if (isDevice(dir) && !folder) throw new Error("A new file cannot be made on a phone: make it on this PC and copy it over.");
   const at = isDevice(dir) ? (await shellNewFolder(dir, name), "") : await (folder ? fsCreateDir(dir, name) : fsCreateFile(dir, name));
   await relist(dir);

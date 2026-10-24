@@ -4,8 +4,9 @@
 import { useEffect, useState } from "react";
 import { convertFileSrc, fsRead, mediaMeta } from "../shim/bridge.js";
 import { FileIcon, MediaViewer, MonacoViewer, themeById, useEditorSettings } from "../shim/ui.js";
-import { extOf, isDevice, isRemote, parentOf, previewKind, sizeLabel, typeLabel, type Entry } from "./logic";
+import { extOf, isAdb, isDevice, isRemote, offPc, parentOf, previewKind, sizeLabel, typeLabel, type Entry } from "./logic";
 import { nameOf } from "./folders";
+import { adbRead } from "./adb";
 import { useThumb } from "./thumbs";
 
 /** Text larger than this is not read for the preview. */
@@ -27,9 +28,10 @@ function Shown({ e }: { e: Entry }) {
   const thumb = useThumb(e.path, e.mtimeMs, 512, (local && (kind === "pdf" || kind === "photo")) || (phone && kind !== "text" && kind !== "none"));
   useEffect(() => {
     setText(null);
-    if (kind !== "text" || e.size > TEXT_MAX || !local) return;
+    // An app's file over adb is read too: its shared_prefs XML and JSON are what it is opened for.
+    if (kind !== "text" || e.size > TEXT_MAX || !(local || isAdb(e.path))) return;
     let live = true;
-    void fsRead(e.path).then((t: string) => { if (live) setText(t); }, () => { if (live) setText(""); });
+    void (isAdb(e.path) ? adbRead(e.path) : fsRead(e.path)).then((t: string) => { if (live) setText(t); }, () => { if (live) setText(""); });
     return () => { live = false; };
   }, [e.path, e.mtimeMs]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -84,7 +86,7 @@ export function Preview({ selected, cwd, onOpen, openWithMenu, onCopyPath, onRev
           {!one.dir && fact("Size", sizeLabel(one.size))}
           {fact("Modified", when(one.mtimeMs))}
           {/* A phone's folder by its name: its path is ids. */}
-              {fact("Where", isDevice(one.path) ? nameOf(parentOf(one.path) ?? "") : one.path.slice(0, one.path.length - one.name.length).replace(/[\\/]$/, ""))}
+              {fact("Where", isDevice(one.path) || isAdb(one.path) ? nameOf(parentOf(one.path) ?? "") : one.path.slice(0, one.path.length - one.name.length).replace(/[\\/]$/, ""))}
         </div>
       )}
       {one && (
@@ -104,7 +106,7 @@ export function Preview({ selected, cwd, onOpen, openWithMenu, onCopyPath, onRev
       {selected.length > 0 && (
         <div className="flex flex-wrap gap-x-3 gap-y-1 text-[12px]">
           <button onClick={() => onCopyPath(selected.map((e) => e.path))} className="text-[var(--accent)] hover:underline">Copy path</button>
-          {one && !isRemote(one.path) && !isDevice(one.path) && <button onClick={() => onReveal(one.path)} className="text-[var(--accent)] hover:underline">Show in Windows Explorer</button>}
+          {one && !offPc(one.path) && <button onClick={() => onReveal(one.path)} className="text-[var(--accent)] hover:underline">Show in Windows Explorer</button>}
         </div>
       )}
     </aside>

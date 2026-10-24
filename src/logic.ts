@@ -22,8 +22,29 @@ const DEVICE_ROOT = /^::\{[^}]+\}\\\\\\\?\\[^\\]+/;
 /** The device a phone path is on: its top, which has no parent. */
 export const deviceRoot = (p: string) => DEVICE_ROOT.exec(p)?.[0] ?? null;
 
+// An app's private folder on a phone, over adb (adb.ts): `::adb/<serial>` is the phone (its
+// debuggable apps), `::adb/<serial>/<package>` the app's /data/data/<package>, then its folders.
+// Real names all the way down, unlike a phone over USB file transfer.
+export const isAdb = (p: string) => p.startsWith("::adb/");
+const ADB = /^::adb\/([^/]+)(?:\/([^/]+)(\/.*)?)?$/;
+export const adbRoot = (serial: string) => `::adb/${serial}`;
+/** The phone, the app and the path inside the app's folder ("" for the folder itself). */
+export function adbParts(p: string): { serial: string; pkg: string; rel: string } | null {
+  const m = ADB.exec(p.replace(/\/+$/, ""));
+  return m ? { serial: m[1], pkg: m[2] ?? "", rel: m[3] ?? "" } : null;
+}
+/** Where an adb path is on the phone. */
+export const adbAbs = (pkg: string, rel: string) => `/data/data/${pkg}${rel}`;
+/** Not this PC's disk: a server's folder, a phone's over USB, an app's over adb. */
+export const offPc = (p: string) => isRemote(p) || isDevice(p) || isAdb(p);
+
 /** The folder holding `p`, or null at a top: a drive, a share, a server's `/`. */
 export function parentOf(p: string): string | null {
+  if (isAdb(p)) {
+    const a = adbParts(p);
+    if (!a || !a.pkg) return null;
+    return a.rel ? p.replace(/\/+$/, "").replace(/\/[^/]+$/, "") : adbRoot(a.serial);
+  }
   if (isDevice(p)) {
     const root = deviceRoot(p);
     if (!root || p.length <= root.length) return null;
@@ -49,12 +70,14 @@ export function parentOf(p: string): string | null {
 
 /** `name` inside folder `dir`. */
 export function joinPath(dir: string, name: string): string {
+  if (isAdb(dir)) return `${dir.replace(/\/+$/, "")}/${name}`;
   if (isRemote(dir)) return dir.endsWith("/") ? dir + name : `${dir}/${name}`;
   return dir.endsWith("\\") || dir.endsWith("/") ? dir + name : `${dir}\\${name}`;
 }
 
 /** The last part of a path, for a title. A drive is `C:`, a server's root its host. */
 export function baseName(p: string): string {
+  if (isAdb(p)) return p.replace(/\/+$/, "").split("/").pop() ?? p;
   const r = REMOTE.exec(p);
   if (r) return r[3].replace(/\/+$/, "").split("/").pop() || r[1];
   const w = p.replace(/\//g, "\\").replace(/\\+$/, "");

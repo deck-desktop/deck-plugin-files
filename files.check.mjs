@@ -57,6 +57,22 @@ assert.equal(L.joinPath("C:\\", "Users"), String.raw`C:\Users`);
   assert.ok(!L.canDrop([{ path: pics + "\\{1}" }], pics), "where it already is");
 }
 
+// An app's folder over adb: real names, the phone at the top.
+{
+  const app = "::adb/R5CY207JF2V/com.hassan171.wallet";
+  assert.deepEqual(L.adbParts(app + "/shared_prefs/x.xml"), { serial: "R5CY207JF2V", pkg: "com.hassan171.wallet", rel: "/shared_prefs/x.xml" });
+  assert.deepEqual(L.adbParts("::adb/R5CY207JF2V"), { serial: "R5CY207JF2V", pkg: "", rel: "" });
+  assert.equal(L.parentOf(app + "/shared_prefs/x.xml"), app + "/shared_prefs");
+  assert.equal(L.parentOf(app + "/shared_prefs"), app);
+  assert.equal(L.parentOf(app), "::adb/R5CY207JF2V");
+  assert.equal(L.parentOf("::adb/R5CY207JF2V"), null);
+  assert.equal(L.adbAbs("com.hassan171.wallet", "/databases"), "/data/data/com.hassan171.wallet/databases");
+  assert.equal(L.joinPath(app, "files"), app + "/files");
+  assert.equal(L.baseName(app + "/shared_prefs"), "shared_prefs");
+  assert.ok(L.isAdb(app) && !L.isRemote(app) && !L.isDevice(app) && L.offPc(app));
+  assert.deepEqual(L.crumbs(app + "/databases").map((c) => c.label), ["R5CY207JF2V", "com.hassan171.wallet", "databases"]);
+}
+
 // Dragging files: a plain drop moves on the same drive or server and copies elsewhere; never into
 // one of the folders dragged, nor into the folder they are already in.
 assert.ok(L.sameVolume(String.raw`C:\a\x.txt`, "c:\\b"));

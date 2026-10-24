@@ -15,7 +15,7 @@ import {
   type ConfirmState, type MenuEntry, type NamePromptState,
 } from "../shim/ui.js";
 import { applyDtCommand, openInEditor, switchWorkspace, workspaceByCwd } from "../shim/terminals.js";
-import { baseName, crumbs, groupEntries, isDevice, isRemote, parentOf, previewKind, sizeLabel, sortEntries, typeAhead, type Clash, type Entry, type SortKey } from "./logic";
+import { baseName, crumbs, groupEntries, isAdb, isDevice, isRemote, parentOf, previewKind, sizeLabel, sortEntries, typeAhead, type Clash, type Entry, type SortKey } from "./logic";
 import { nameOf, phoneCrumbs, relist, useListing } from "./folders";
 import { cancelJob, clipboard, create, fromPhone, paste, remove, rename, setClipboard, useClipboard, useJob, type Ask, type Choice } from "./ops";
 import { Details, Grid } from "./Listing";
@@ -100,17 +100,20 @@ function Explorer({ tab }: { tab: Tab }) {
     return () => ro.disconnect();
   }, [cwd, editingPath]);
 
-  const phone = isDevice(cwd);
+  // A phone's folder, over USB file transfer or an app's over adb: no search, no workspace, no
+  // Explorer window, no Recycle Bin.
+  const phone = isDevice(cwd) || isAdb(cwd);
   const [phonePath, setPhonePath] = useState<{ label: string; path: string }[] | null>(null);
   useEffect(() => {
     setPhonePath(null);
-    if (!phone) return;
+    if (!isDevice(cwd)) return;
     let live = true;
     void phoneCrumbs(cwd).then((list) => { if (live) setPhonePath(list.map((c) => ({ label: c.name, path: c.path }))); },
       (e: unknown) => console.warn("[files] the phone's folder names could not be read", e));
     return () => { live = false; };
   }, [cwd, phone]);
-  const pathCrumbs = phone ? phonePath ?? [{ label: nameOf(cwd), path: cwd }] : crumbs(cwd);
+  const pathCrumbs = isDevice(cwd) ? phonePath ?? [{ label: nameOf(cwd), path: cwd }]
+    : isAdb(cwd) ? crumbs(cwd).map((c) => ({ ...c, label: nameOf(c.path) })) : crumbs(cwd);
 
   const fail = useCallback((what: string, e: unknown) => {
     console.warn(`[files] ${what}`, e);
@@ -137,7 +140,7 @@ function Explorer({ tab }: { tab: Tab }) {
   const openEntry = (e: Entry) => {
     if (e.dir) return go(e.path);
     // A phone's file has no path an app can open: copied to this PC first, then opened like any other.
-    if (isDevice(e.path)) { run(`Opening ${e.name} failed`, async () => openEntry({ ...e, path: await fromPhone(e) })); return; }
+    if (isDevice(e.path) || isAdb(e.path)) { run(`Opening ${e.name} failed`, async () => openEntry({ ...e, path: await fromPhone(e) })); return; }
     const to = openerFor(e.path);
     if (to !== "editor") { openIn(e.path, to); return; }
     const kind = previewKind(e.name);
@@ -146,7 +149,7 @@ function Explorer({ tab }: { tab: Tab }) {
   };
 
   const openWith = (e: Entry): MenuEntry[] => {
-    if (isDevice(e.path)) {
+    if (isDevice(e.path) || isAdb(e.path)) {
       // Chosen by its name (a phone path has no extension), and opened from a copy on this PC.
       return openersFor(e.name).map((o) => ({
         label: o.label, onClick: () => run(`Opening ${e.name} failed`, async () => { const p = await fromPhone(e); if (!openIn(p, o.to)) openInEditor(p); }),

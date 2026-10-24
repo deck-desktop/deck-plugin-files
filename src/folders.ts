@@ -6,7 +6,8 @@
 // changed changes nothing (rule 9). After the explorer's own changes it is re-read at once.
 import { useEffect, useSyncExternalStore } from "react";
 import { fsList, shellList, shellParents, type ShellPlace } from "../shim/bridge.js";
-import { baseName, isDevice, type Entry } from "./logic";
+import { baseName, isAdb, isDevice, type Entry } from "./logic";
+import { adbList } from "./adb";
 
 /** A phone folder's name, by its path: its parts are ids (logic.ts), so names are kept as they are read. */
 const names = new Map<string, string>();
@@ -31,7 +32,7 @@ const same = (a: Entry[], b: Entry[]) => a.length === b.length
 /** List `dir` now. The build folders (node_modules and the rest) are included: this is a file manager. */
 export async function relist(dir: string): Promise<void> {
   try {
-    const entries = (isDevice(dir) ? await shellList(dir) : await fsList(dir, true)) as Entry[];
+    const entries = (isAdb(dir) ? await adbList(dir) : isDevice(dir) ? await shellList(dir) : await fsList(dir, true)) as Entry[];
     if (isDevice(dir)) for (const e of entries) names.set(e.path, e.name);
     const was = listings.get(dir);
     if (was && !was.error && !was.loading && same(was.entries, entries)) return;
@@ -52,7 +53,7 @@ export function useListing(dir: string): Listing {
     if (!dir) return;
     void relist(dir);
     // A phone answers slowly and one request at a time: listed once, and again on Refresh.
-    if (isDevice(dir)) return;
+    if (isDevice(dir) || isAdb(dir)) return;
     const tick = () => { if (!document.hidden) void relist(dir); };
     const t = setInterval(tick, 3000);
     document.addEventListener("visibilitychange", tick);

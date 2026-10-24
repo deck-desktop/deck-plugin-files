@@ -2,9 +2,10 @@
 // servers in ~/.ssh/config. Drives are read when the sidebar appears and on Refresh, never on a
 // timer: asking a drive for its space is a one-off.
 import { useEffect, useState } from "react";
-import { HardDrive, Plus, RefreshCw, Server, Smartphone, Star, Usb } from "lucide-react";
+import { Bug, HardDrive, Plus, RefreshCw, Server, Smartphone, Star, Usb } from "lucide-react";
 import { fsDrives, remoteHome, shellPlaces, sshHosts, type Drive, type ShellPlace } from "../shim/bridge.js";
 import { nameIt } from "./folders";
+import { adbDevices, type AdbDevice } from "./adb";
 import { ContextMenu, IconButton, type MenuEntry } from "../shim/ui.js";
 import { freeLabel, samePath } from "./logic";
 import { update, type Pin } from "./store";
@@ -30,10 +31,14 @@ export function Sidebar({ cwd, pins, onOpen, fail, width }: {
   const [menu, setMenu] = useState<{ x: number; y: number; items: MenuEntry[] } | null>(null);
   // Phones and cameras plugged in (unlocked, and set to file transfer), read with the drives.
   const [devices, setDevices] = useState<ShellPlace[]>([]);
+  // The same phones over adb (USB debugging on): the private folders of their debuggable apps.
+  const [adbPhones, setAdbPhones] = useState<AdbDevice[]>([]);
   const loadDrives = () => {
     void fsDrives().then(setDrives, (e: unknown) => fail("Reading the drives failed", e));
     void shellPlaces().then((list: ShellPlace[]) => { for (const d of list) nameIt(d.path, d.name); setDevices(list); },
       (e: unknown) => console.warn("[files] reading the phones failed", e));
+    void adbDevices().then((list: AdbDevice[]) => { for (const d of list) nameIt(d.path, `${d.name} apps`); setAdbPhones(list); },
+      () => setAdbPhones([]));
   };
   useEffect(() => {
     loadDrives();
@@ -97,6 +102,19 @@ export function Sidebar({ cwd, pins, onOpen, fail, width }: {
           </button>
         ))}
       </div>
+
+      {adbPhones.length > 0 && (
+        <div className="flex flex-col">
+          <span className={head} title="Each debuggable app's own files, as Android Studio's Device Explorer shows them, over adb">Apps (adb)</span>
+          {adbPhones.map((d) => (
+            <button key={d.path} onClick={() => onOpen(d.path)} title={`${d.name}: the files of its debug builds, over adb`}
+              className={row + (cwd.startsWith(d.path) ? " bg-white/[0.07] text-text-primary" : " text-text-secondary hover:bg-white/5 hover:text-text-primary")}>
+              <Bug size={13} className="shrink-0" />
+              <span className="truncate">{d.name}</span>
+            </button>
+          ))}
+        </div>
+      )}
 
       <div className="flex flex-col">
         <span className={head}>Servers</span>
