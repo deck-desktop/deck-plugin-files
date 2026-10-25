@@ -110,8 +110,10 @@ function Explorer({ tab }: { tab: Tab }) {
     setPhonePath(null);
     if (!isDevice(cwd)) return;
     let live = true;
+    // A phone that is not plugged in (a tab restored on one of its folders) is said by the listing
+    // itself; only a failure with the phone there is worth the log.
     void phoneCrumbs(cwd).then((list) => { if (live) setPhonePath(list.map((c) => ({ label: c.name, path: c.path }))); },
-      (e: unknown) => console.warn("[files] the phone's folder names could not be read", e));
+      (e: unknown) => { if (!/is not there any more/.test(String(e))) console.warn("[files] the phone's folder names could not be read", e); });
     return () => { live = false; };
   }, [cwd, phone]);
   const pathCrumbs = isDevice(cwd) ? phonePath ?? [{ label: nameOf(cwd), path: cwd }]
