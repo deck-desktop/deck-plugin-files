@@ -148,13 +148,16 @@ export function typeLabel(e: Pick<Entry, "name" | "dir">): string {
   return TYPES[ext] ?? (ext ? `${ext.toUpperCase()} file` : "File");
 }
 
+/** Thousands separators, from one formatter for every row: toLocaleString("en") builds one per call. */
+const grouped = new Intl.NumberFormat("en");
+
 /** Bytes as Explorer's Size column has them: whole KB rounded up below a megabyte, then MB, GB. */
 export function sizeLabel(bytes: number): string {
-  if (bytes < 1024 * 1024) return `${Math.max(bytes ? 1 : 0, Math.ceil(bytes / 1024)).toLocaleString("en")} KB`;
+  if (bytes < 1024 * 1024) return `${grouped.format(Math.max(bytes ? 1 : 0, Math.ceil(bytes / 1024)))} KB`;
   const units = ["MB", "GB", "TB"];
   let v = bytes / (1024 * 1024), i = 0;
   while (v >= 1024 && i < units.length - 1) { v /= 1024; i++; }
-  return `${v < 10 ? v.toFixed(1) : Math.round(v).toLocaleString("en")} ${units[i]}`;
+  return `${v < 10 ? v.toFixed(1) : grouped.format(Math.round(v))} ${units[i]}`;
 }
 
 /** Free space for the sidebar: "88 GB free". */

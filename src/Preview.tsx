@@ -18,7 +18,10 @@ const LANG: Record<string, string> = {
   cpp: "cpp", c: "c", h: "c", toml: "ini", ini: "ini", bat: "bat", cmd: "bat",
 };
 
-export const when = (ms: number) => (ms ? new Date(ms).toLocaleString([], { dateStyle: "short", timeStyle: "short" }) : "");
+// One formatter for every row. toLocaleString with options builds a new one on each call, which over
+// a 5,000-file folder was most of a second per render.
+const dateTime = new Intl.DateTimeFormat([], { dateStyle: "short", timeStyle: "short" });
+export const when = (ms: number) => (ms ? dateTime.format(ms) : "");
 
 function Shown({ e }: { e: Entry }) {
   const kind = previewKind(e.name);
