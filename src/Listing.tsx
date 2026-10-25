@@ -1,6 +1,6 @@
 // The folder's entries, as a table (Details) or as tiles (Grid). Selection, renaming and the
 // keyboard live in Files.tsx; this draws them and reports what was clicked.
-import { useEffect, useRef, useState } from "react";
+import { memo, useEffect, useRef, useState } from "react";
 import { ArrowDown, ArrowUp } from "lucide-react";
 import { FileIcon, themeById, useEditorSettings } from "../shim/ui.js";
 import { convertFileSrc } from "../shim/bridge.js";
@@ -57,6 +57,19 @@ const inGroups = (p: ListProps, draw: (e: Entry) => React.ReactNode) =>
 
 /** A folder entry is somewhere to drop files. */
 const dropDir = (e: Entry) => (e.dir ? { [DROP]: e.path } : {});
+
+/**
+ * The listing's props as of its latest render, for the rows' handlers. A row is memoised on what it
+ * draws (its entry and its own flags), so a click re-renders only the rows whose selection changed
+ * and a sort only reorders them; drawn inline, every row re-rendered on every change, which in a
+ * 5,000-file folder was a third of a second per click.
+ */
+type Latest = { current: ListProps };
+function useLatest(p: ListProps): Latest {
+  const ref = useRef(p);
+  ref.current = p;
+  return ref;
+}
 
 /**
  * Drag on the listing's empty space to select what a box covers, as Explorer does. The box is in
@@ -155,8 +168,31 @@ function RenameBox({ e, onRename }: { e: Entry; onRename: (e: Entry, name: strin
 
 const COLS = "grid grid-cols-[minmax(0,1fr)_150px_130px_90px]";
 
+const Row = memo(function Row({ e, on, focus, dim, renaming, theme, p }: {
+  e: Entry; on: boolean; focus: boolean; dim: boolean; renaming: boolean; theme: ReturnType<typeof themeById>; p: Latest;
+}) {
+  return (
+    <div role="row" aria-selected={on} data-path={e.path} {...dropDir(e)}
+      onMouseDown={(ev) => press(p.current, e, ev, !!(ev.target as HTMLElement).closest("[data-name]"))} onDoubleClick={() => p.current.onOpen(e)}
+      onContextMenu={(ev) => { ev.preventDefault(); p.current.onMenu(e, ev); }}
+      className={COLS + " h-[30px] cursor-default select-none items-center rounded-md px-2.5 text-[12.5px] "
+        + (on ? "bg-[var(--accent-soft)] text-text-primary" : "text-text-secondary hover:bg-white/5")
+        + (focus ? " outline outline-1 outline-[var(--accent)]" : "")
+        + (dim ? " opacity-55" : "")}>
+      <span className="flex min-w-0 items-center gap-2">
+        <FileIcon icon={e.dir ? theme.folder(e.name, false) : theme.file(e.name)} size={15} />
+        {renaming ? <RenameBox e={e} onRename={(x, n) => p.current.onRename(x, n)} /> : <span data-name className="truncate">{e.name}</span>}
+      </span>
+      <span className="truncate text-text-muted">{when(e.mtimeMs)}</span>
+      <span className="truncate text-text-muted">{typeLabel(e)}</span>
+      <span className="text-right text-text-muted">{e.dir ? "" : sizeLabel(e.size)}</span>
+    </div>
+  );
+});
+
 export function Details(p: ListProps) {
   const theme = themeById(useEditorSettings().iconTheme);
+  const latest = useLatest(p);
   const marquee = useMarquee(p, true);
   const head = (k: SortKey, label: string, right = false) => (
     <button onClick={() => p.onSort(k)} className={"flex items-center gap-1 hover:text-text-primary " + (right ? "justify-end" : "") + (p.sort === k ? " text-text-secondary" : "")}>
@@ -171,26 +207,10 @@ export function Details(p: ListProps) {
       <div role="grid" aria-label="Files" ref={marquee.ref} onMouseDown={marquee.onMouseDown} {...{ [DROP]: p.cwd }}
         className="scroll-thin relative min-h-0 flex-1 overflow-y-auto px-1.5 py-1"
         onContextMenu={(ev) => { if (ev.target === ev.currentTarget) { ev.preventDefault(); p.onMenu(null, ev); } }}>
-        {inGroups(p, (e) => {
-          const on = p.selected.has(e.path);
-          return (
-            <div key={e.path} role="row" aria-selected={on} data-path={e.path} {...dropDir(e)}
-              onMouseDown={(ev) => press(p, e, ev, !!(ev.target as HTMLElement).closest("[data-name]"))} onDoubleClick={() => p.onOpen(e)}
-              onContextMenu={(ev) => { ev.preventDefault(); p.onMenu(e, ev); }}
-              className={COLS + " h-[30px] cursor-default select-none items-center rounded-md px-2.5 text-[12.5px] "
-                + (on ? "bg-[var(--accent-soft)] text-text-primary" : "text-text-secondary hover:bg-white/5")
-                + (p.focus === e.path ? " outline outline-1 outline-[var(--accent)]" : "")
-                + (p.cut.has(e.path) || e.hidden ? " opacity-55" : "")}>
-              <span className="flex min-w-0 items-center gap-2">
-                <FileIcon icon={e.dir ? theme.folder(e.name, false) : theme.file(e.name)} size={15} />
-                {p.renaming === e.path ? <RenameBox e={e} onRename={p.onRename} /> : <span data-name className="truncate">{e.name}</span>}
-              </span>
-              <span className="truncate text-text-muted">{when(e.mtimeMs)}</span>
-              <span className="truncate text-text-muted">{typeLabel(e)}</span>
-              <span className="text-right text-text-muted">{e.dir ? "" : sizeLabel(e.size)}</span>
-            </div>
-          );
-        })}
+        {inGroups(p, (e) => (
+          <Row key={e.path} e={e} on={p.selected.has(e.path)} focus={p.focus === e.path} dim={p.cut.has(e.path) || !!e.hidden}
+            renaming={p.renaming === e.path} theme={theme} p={latest} />
+        ))}
         {marquee.overlay}
       </div>
     </div>
@@ -199,7 +219,7 @@ export function Details(p: ListProps) {
 
 const TILE = [0, 96, 132, 180, 240];
 
-function Tile({ e, size, on, focus, dim, renaming, p }: { e: Entry; size: number; on: boolean; focus: boolean; dim: boolean; renaming: boolean; p: ListProps }) {
+const Tile = memo(function Tile({ e, size, on, focus, dim, renaming, p }: { e: Entry; size: number; on: boolean; focus: boolean; dim: boolean; renaming: boolean; p: Latest }) {
   const theme = themeById(useEditorSettings().iconTheme);
   const kind = previewKind(e.name);
   // An SVG is drawn as itself: Windows' thumbnail for one is only the file type's icon.
@@ -209,8 +229,8 @@ function Tile({ e, size, on, focus, dim, renaming, p }: { e: Entry; size: number
   const url = svg ? `${convertFileSrc(e.path)}?v=${e.mtimeMs}` : thumb;
   return (
     <div role="gridcell" aria-selected={on} data-path={e.path} {...dropDir(e)}
-      onMouseDown={(ev) => press(p, e, ev)} onDoubleClick={() => p.onOpen(e)}
-      onContextMenu={(ev) => { ev.preventDefault(); p.onMenu(e, ev); }}
+      onMouseDown={(ev) => press(p.current, e, ev)} onDoubleClick={() => p.current.onOpen(e)}
+      onContextMenu={(ev) => { ev.preventDefault(); p.current.onMenu(e, ev); }}
       className={"flex cursor-default select-none flex-col gap-1.5 rounded-lg p-1.5 "
         + (on ? "bg-[var(--accent-soft)]" : "hover:bg-white/5") + (focus ? " outline outline-1 outline-[var(--accent)]" : "") + (dim ? " opacity-55" : "")}>
       <div className="grid place-items-center overflow-hidden rounded-md bg-elev"
@@ -218,13 +238,14 @@ function Tile({ e, size, on, focus, dim, renaming, p }: { e: Entry; size: number
         {url ? <img src={url} alt="" className="max-h-full max-w-full object-contain" />
           : <FileIcon icon={e.dir ? theme.folder(e.name, false) : theme.file(e.name)} size={Math.round(TILE[size] / 3)} />}
       </div>
-      {renaming ? <RenameBox e={e} onRename={p.onRename} />
+      {renaming ? <RenameBox e={e} onRename={(x, n) => p.current.onRename(x, n)} />
         : <span className={"line-clamp-2 break-all text-center text-[12px] " + (on ? "text-text-primary" : "text-text-secondary")}>{e.name}</span>}
     </div>
   );
-}
+});
 
 export function Grid(p: ListProps & { size: number }) {
+  const latest = useLatest(p);
   const marquee = useMarquee(p);
   return (
     <div role="grid" aria-label="Files" ref={marquee.ref} onMouseDown={marquee.onMouseDown} {...{ [DROP]: p.cwd }}
@@ -234,7 +255,7 @@ export function Grid(p: ListProps & { size: number }) {
         onContextMenu={(ev) => { if (ev.target === ev.currentTarget) { ev.preventDefault(); p.onMenu(null, ev); } }}>
         {inGroups(p, (e) => (
           <Tile key={e.path} e={e} size={p.size} on={p.selected.has(e.path)} focus={p.focus === e.path}
-            dim={p.cut.has(e.path) || e.hidden} renaming={p.renaming === e.path} p={p} />
+            dim={p.cut.has(e.path) || !!e.hidden} renaming={p.renaming === e.path} p={latest} />
         ))}
       </div>
       {marquee.overlay}
