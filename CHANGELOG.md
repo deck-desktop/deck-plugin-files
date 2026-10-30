@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.2.2 (2026-10-30)
+
+- A licence, this changelog, a README rewritten with a screenshot, and the permissions it uses
+  declared. Built from its own lockfile.
+
 ## 0.2.1 (2026-10-25)
 
 - No warning for a phone folder's names while the phone is unplugged
