@@ -5,5 +5,11 @@
   "icon": "FolderOpen",
   "color": "#60a5fa",
   "version": "0.2.1",
-  "minDeck": "1.11.0"
+  "minDeck": "1.11.0",
+  "permissions": [
+    "files",
+    "processes",
+    "network",
+    "terminals"
+  ]
 }
