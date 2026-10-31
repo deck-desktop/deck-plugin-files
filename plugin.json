@@ -6,6 +6,9 @@
   "color": "#60a5fa",
   "version": "0.2.2",
   "minDeck": "1.11.0",
+  "platforms": [
+    "windows"
+  ],
   "permissions": [
     "files",
     "processes",
