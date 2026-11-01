@@ -3,8 +3,8 @@
 // are not looking at; kept in the plugin's own config, written only when it changed (Deck's
 // performance rule 3: every write wakes every config listener).
 import { useSyncExternalStore } from "react";
-import { configRead, configWrite, fsHomeDir } from "../shim/bridge.js";
-import type { GroupKey, SortKey } from "./logic";
+import { configRead, configWrite, fsHomeDir, isWindows } from "../shim/bridge.js";
+import { joinPath, type GroupKey, type SortKey } from "./logic";
 
 export type View = "details" | "grid";
 export interface Tab { id: string; path: string; view: View; sort: SortKey; asc: boolean; group?: GroupKey }
@@ -39,9 +39,9 @@ export function loadState(): Promise<void> {
     written = text.trim() ? JSON.stringify({ ...state, ...saved }) : "";
     state = { ...state, ...saved };
     if (!state.tabs.length || !state.pins.length) {
-      const home = await fsHomeDir().catch(() => "C:\\");
+      const home = await fsHomeDir().catch(() => (isWindows() ? "C:\\" : "/"));
       if (!state.tabs.length) { const t = newTab(home); state = { ...state, tabs: [t], active: t.id }; }
-      if (!saved.pins) state = { ...state, pins: ["Desktop", "Downloads", "Documents", "Pictures"].map((n) => ({ path: `${home}\\${n}`, name: n })) };
+      if (!saved.pins) state = { ...state, pins: ["Desktop", "Downloads", "Documents", "Pictures"].map((n) => ({ path: joinPath(home, n), name: n })) };
     }
     if (!state.tabs.some((t) => t.id === state.active)) state = { ...state, active: state.tabs[0].id };
     subs.forEach((f) => f());

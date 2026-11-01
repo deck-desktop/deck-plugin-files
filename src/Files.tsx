@@ -9,7 +9,10 @@ import {
   ArrowLeft, ArrowRight, ArrowUp, ArrowUpDown, Check, ChevronDown, Columns2, FolderOpen, LayoutGrid, List,
   PanelRight, RefreshCw, Search as SearchIcon, X,
 } from "lucide-react";
-import { fsOpen, fsReveal, fsList } from "../shim/bridge.js";
+import { fsOpen, fsReveal, fsList, isWindows } from "../shim/bridge.js";
+
+/** Where a deleted file goes on this PC: the Recycle Bin on Windows, the Trash elsewhere. */
+const BIN = () => (isWindows() ? "the Recycle Bin" : "the Trash");
 import {
   ConfirmDialog, ContextMenu, NamePrompt, TabStrip, onKeys, openIn, openerFor, openersFor, useResize, useScope,
   type ConfirmState, type MenuEntry, type NamePromptState,
@@ -169,7 +172,7 @@ function Explorer({ tab }: { tab: Tab }) {
     const items: MenuEntry[] = openersFor(e.path).map((o) => ({
       label: o.label, onClick: () => { if (!openIn(e.path, o.to)) openInEditor(e.path); },
     }));
-    if (!isRemote(e.path)) items.push("sep", { label: "Windows' default app", onClick: () => void fsOpen(e.path).catch((err: unknown) => fail("Opening failed", err)) });
+    if (!isRemote(e.path)) items.push("sep", { label: isWindows() ? "Windows' default app" : "The system's default app", onClick: () => void fsOpen(e.path).catch((err: unknown) => fail("Opening failed", err)) });
     return items;
   };
 
@@ -191,14 +194,14 @@ function Explorer({ tab }: { tab: Tab }) {
     const what = list.length === 1 ? list[0].name : `${list.length} items`;
     const doIt = () => run("Deleting failed", async () => {
       await remove(list.map((e) => e.path), forever);
-      notice(forever || remote ? `${what} deleted` : `${what} moved to the Recycle Bin`);
+      notice(forever || remote ? `${what} deleted` : `${what} moved to ${BIN()}`);
       setSelected(new Set());
     });
     if (forever || remote) setConfirm({
       title: `Delete ${what} for good?`,
       body: isAdb(list[0].path) ? "An app's folder has no Recycle Bin: this cannot be undone. Close the app first if it is running."
         : isDevice(list[0].path) ? "A phone has no Recycle Bin: this cannot be undone."
-        : remote ? "A server has no Recycle Bin: this cannot be undone." : "It skips the Recycle Bin, so it cannot be undone.",
+        : remote ? "A server has no Recycle Bin: this cannot be undone." : `It skips ${BIN()}, so it cannot be undone.`,
       confirmLabel: "Delete", onConfirm: doIt,
     });
     else doIt();
@@ -298,9 +301,9 @@ function Explorer({ tab }: { tab: Tab }) {
       { label: "Copy path", hint: "Ctrl+Shift+C", onClick: () => copyPaths(list.map((x) => x.path)) },
       { label: "Rename", hint: "F2", disabled: list.length !== 1, onClick: () => setRenaming(e.path) },
       ...(e.dir ? [{ label: "Pin to the sidebar", onClick: () => pin(e) } as MenuEntry] : []),
-      ...(!remote ? [{ label: "Show in Windows Explorer", onClick: () => run("Showing it failed", () => fsReveal(e.path)) } as MenuEntry] : []),
+      ...(!remote ? [{ label: isWindows() ? "Show in Windows Explorer" : "Show in the file manager", onClick: () => run("Showing it failed", () => fsReveal(e.path)) } as MenuEntry] : []),
       "sep",
-      { label: remote ? "Delete" : "Move to the Recycle Bin", hint: "Del", danger: true, onClick: () => trash(list) },
+      { label: remote ? "Delete" : `Move to ${BIN()}`, hint: "Del", danger: true, onClick: () => trash(list) },
     ] : [
       { label: "New folder", hint: "Ctrl+Shift+N", onClick: () => newItem(true) },
       { label: "New file", onClick: () => newItem(false) },
@@ -309,7 +312,7 @@ function Explorer({ tab }: { tab: Tab }) {
       { label: "Show hidden files", checked: getState().showHidden, onClick: () => update((st) => ({ showHidden: !st.showHidden })) },
       { label: "Refresh", hint: "F5", onClick: () => void relist(cwd) },
       { label: "Copy this folder's path", onClick: () => copyPaths([cwd]) },
-      ...(!remote ? [{ label: "Open in Windows Explorer", onClick: () => run("Opening it failed", () => fsOpen(cwd)) } as MenuEntry] : []),
+      ...(!remote ? [{ label: isWindows() ? "Open in Windows Explorer" : "Open in the file manager", onClick: () => run("Opening it failed", () => fsOpen(cwd)) } as MenuEntry] : []),
     ];
     setMenu({ x: ev.clientX, y: ev.clientY, items: e ? items : () => { const live = getState(); return items.map((i) => (i !== "sep" && i.checked !== undefined ? { ...i, checked: live.showHidden } : i)); } });
   };
@@ -536,7 +539,7 @@ function ClashDialog({ a, onDone }: { a: Asking; onDone: (ans: { choice: Choice;
         <div className="flex flex-col gap-1">
           <span className="text-[15px] font-semibold text-text-primary">{a.clash.name} is already there</span>
           <span className="text-[12.5px] text-text-secondary">
-            {a.clash.folder ? "A folder cannot be replaced by a copy, only kept beside it with a new name, or skipped." : "Replace it (the old one goes to the Recycle Bin), keep both, or skip this one."}
+            {a.clash.folder ? "A folder cannot be replaced by a copy, only kept beside it with a new name, or skipped." : `Replace it (the old one goes to ${BIN()}), keep both, or skip this one.`}
           </span>
         </div>
         {a.rest > 0 && (

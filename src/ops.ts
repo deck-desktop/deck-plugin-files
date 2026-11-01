@@ -8,7 +8,7 @@
 // folders), with "the same for the rest". Copying between this PC and a server is refused: each fs
 // call works on one side.
 import { useSyncExternalStore } from "react";
-import { dataDir, fsCopy, fsCreateDir, fsCreateFile, fsDelete, fsList, fsMove, fsRename, fsTrash, shellDelete, shellNewFolder, shellRename, shellTransfer } from "../shim/bridge.js";
+import { dataDir, fsCopy, fsCreateDir, fsCreateFile, fsDelete, fsList, fsMove, fsRename, fsTrash, isWindows, shellDelete, shellNewFolder, shellRename, shellTransfer } from "../shim/bridge.js";
 import { baseName, clashes, insideItself, isAdb, isDevice, isRemote, joinPath, keptName, offPc, parentOf, type Clash, type Entry } from "./logic";
 import { adbCreate, adbDelete, adbList, adbPull, adbPush, adbRename } from "./adb";
 import { listedPath, relist } from "./folders";
@@ -58,6 +58,7 @@ export async function transfer(sources: Entry[] | { path: string; dir: boolean }
         await adbPull(items.map((s) => s.path), staging);
         const pulled = items.map((s) => ({ path: joinPath(staging, baseName(s.path)), dir: s.dir }));
         job = null;
+        if (!isWindows()) return transfer(pulled, dest, true, ask);
         return (await shellTransfer(pulled.map((s) => s.path), dest, true)) ? items.length : 0;
       } finally {
         await fsDelete(staging).catch(() => { /* moved out already */ });
@@ -71,7 +72,8 @@ export async function transfer(sources: Entry[] | { path: string; dir: boolean }
   const server = isRemote(dest) || items.some((s) => isRemote(s.path));
   if (server && (isDevice(dest) || items.some((s) => isDevice(s.path)))) throw new Error("Copying between a server and a phone is not possible here.");
   // On this PC, or to, from or within a phone: Windows' own copy, so none of the steps below.
-  if (!server) {
+  // Off Windows there is no such copy: this PC's folders take the steps below, as a server's do.
+  if (!server && isWindows()) {
     const todo = move ? items.filter((s) => !samePlace(s.path, dest)) : items;
     if (!todo.length) return 0;
     job = { label: `${move ? "Moving" : "Copying"} ${todo.length} item${todo.length === 1 ? "" : "s"}`, done: 0, total: todo.length, current: "", cancelled: false };
@@ -210,7 +212,7 @@ export async function fromPhone(e: { path: string; name: string }): Promise<stri
   return local;
 }
 
-/** Into the Recycle Bin (on this PC), or deleted for good (on a server, which has none). */
+/** Into the Recycle Bin or the Trash (on this PC), or deleted for good (on a server, which has none). */
 export async function remove(paths: string[], forever: boolean): Promise<void> {
   // A phone has no Recycle Bin: for good, and asked about first (Files.tsx).
   // An app's files over adb, and a phone's over USB: for good, and asked about first (Files.tsx).

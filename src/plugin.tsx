@@ -14,7 +14,7 @@ export const PaneView = Files;
 // Arrows, Enter and Backspace are the list's own and are not listed here.
 export const keybindings = () => [
   { id: "rename", title: "Rename", defaultChord: "f2" },
-  { id: "delete", title: "Move to the Recycle Bin", defaultChord: "delete" },
+  { id: "delete", title: "Delete (to the Recycle Bin or Trash)", defaultChord: "delete" },
   { id: "delete-forever", title: "Delete for good", defaultChord: "shift+delete" },
   { id: "copy", title: "Copy", defaultChord: "ctrl+c" },
   { id: "cut", title: "Cut", defaultChord: "ctrl+x" },

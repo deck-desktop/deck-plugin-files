@@ -2,7 +2,7 @@
 // and code, a PDF's first page), what it is, and how to open it. Several selected: how many and
 // how big together. Nothing selected: the folder itself.
 import { useEffect, useState } from "react";
-import { convertFileSrc, fsRead, mediaMeta } from "../shim/bridge.js";
+import { convertFileSrc, fsRead, isWindows, mediaMeta } from "../shim/bridge.js";
 import { FileIcon, MediaViewer, MonacoViewer, themeById, useEditorSettings } from "../shim/ui.js";
 import { extOf, isAdb, isDevice, isRemote, offPc, parentOf, previewKind, sizeLabel, typeLabel, type Entry } from "./logic";
 import { nameOf } from "./folders";
@@ -109,7 +109,7 @@ export function Preview({ selected, cwd, onOpen, openWithMenu, onCopyPath, onRev
       {selected.length > 0 && (
         <div className="flex flex-wrap gap-x-3 gap-y-1 text-[12px]">
           <button onClick={() => onCopyPath(selected.map((e) => e.path))} className="text-[var(--accent)] hover:underline">Copy path</button>
-          {one && !offPc(one.path) && <button onClick={() => onReveal(one.path)} className="text-[var(--accent)] hover:underline">Show in Windows Explorer</button>}
+          {one && !offPc(one.path) && <button onClick={() => onReveal(one.path)} className="text-[var(--accent)] hover:underline">{isWindows() ? "Show in Windows Explorer" : "Show in the file manager"}</button>}
         </div>
       )}
     </aside>

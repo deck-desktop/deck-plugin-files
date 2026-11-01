@@ -7,12 +7,15 @@ export interface Entry { name: string; path: string; dir: boolean; mtimeMs: numb
 
 // ---- paths -------------------------------------------------------------------------------------
 //
-// A path here is a Windows one (`C:\Users\Hasan`, a share `\\server\share\x`) or a server folder
+// A path here is a Windows one (`C:\Users\Hasan`, a share `\\server\share\x`), a Linux one
+// (`/home/hasan`, this PC's too, with / between its parts and case that counts) or a server folder
 // as Deck writes it, `host:/srv/x` (`host+sudo:/…` for root). A host is at least two characters,
 // so `D:/x` is never taken for one: the same rule as Deck's remotepath.ts.
 
 const REMOTE = /^([A-Za-z0-9._@-]{2,})(\+sudo)?:(\/.*)$/;
 export const isRemote = (p: string) => REMOTE.test(p);
+/** A path on this PC when it is Linux: it starts at the root, /. */
+export const isPosix = (p: string) => p.startsWith("/");
 
 // A phone's or camera's folder, as Windows' shell names it (Deck's shellList): the device is
 // `::{This PC}\\\?\usb#…#{…}`, and below it come `\SID-{…}` and `\{object id}` parts. The parts
@@ -58,6 +61,10 @@ export function parentOf(p: string): string | null {
     const up = path.slice(0, path.lastIndexOf("/")) || "/";
     return `${r[1]}${r[2] ?? ""}:${up}`;
   }
+  if (isPosix(p)) {
+    const path = p.replace(/\/+$/, "");
+    return path ? path.slice(0, path.lastIndexOf("/")) || "/" : null;
+  }
   const w = p.replace(/\//g, "\\").replace(/\\+$/, "");
   if (/^[A-Za-z]:$/.test(w)) return null;
   const share = /^\\\\[^\\]+\\[^\\]+$/.test(w);
@@ -71,7 +78,7 @@ export function parentOf(p: string): string | null {
 /** `name` inside folder `dir`. */
 export function joinPath(dir: string, name: string): string {
   if (isAdb(dir)) return `${dir.replace(/\/+$/, "")}/${name}`;
-  if (isRemote(dir)) return dir.endsWith("/") ? dir + name : `${dir}/${name}`;
+  if (isRemote(dir) || isPosix(dir)) return dir.endsWith("/") ? dir + name : `${dir}/${name}`;
   return dir.endsWith("\\") || dir.endsWith("/") ? dir + name : `${dir}\\${name}`;
 }
 
@@ -80,6 +87,7 @@ export function baseName(p: string): string {
   if (isAdb(p)) return p.replace(/\/+$/, "").split("/").pop() ?? p;
   const r = REMOTE.exec(p);
   if (r) return r[3].replace(/\/+$/, "").split("/").pop() || r[1];
+  if (isPosix(p)) return p.replace(/\/+$/, "").split("/").pop() || "/";
   const w = p.replace(/\//g, "\\").replace(/\\+$/, "");
   return w.split("\\").pop() || w;
 }
@@ -99,7 +107,7 @@ function crumbLabel(p: string): string {
 
 /** A path for comparing: one file however its path was spelled (slashes, case on Windows). */
 export const samePath = (a: string, b: string) => key(a) === key(b);
-const key = (p: string) => (isRemote(p) ? p.replace(/\/+$/, "") : p.replace(/\//g, "\\").replace(/\\+$/, "").toLowerCase());
+const key = (p: string) => (isRemote(p) || isPosix(p) ? p.replace(/\/+$/, "") : p.replace(/\//g, "\\").replace(/\\+$/, "").toLowerCase());
 
 // ---- sorting -----------------------------------------------------------------------------------
 
@@ -200,7 +208,7 @@ export function clashes(sources: { path: string; dir: boolean }[], dest: Entry[]
 
 /** Whether `dest` is `src` itself or inside it: a folder cannot be copied or moved into itself. */
 export function insideItself(src: string, dest: string): boolean {
-  return samePath(src, dest) || key(dest).startsWith(key(src) + (isRemote(src) ? "/" : "\\"));
+  return samePath(src, dest) || key(dest).startsWith(key(src) + (isRemote(src) || isPosix(src) ? "/" : "\\"));
 }
 
 /** A search's name matches: every word, anywhere in the name, case ignored. */
@@ -228,7 +236,9 @@ export function nameMatches(name: string, query: string): boolean {
 
 /** Same drive (C: and C:), or the same server: where a plain drop moves rather than copies. */
 export function sameVolume(a: string, b: string): boolean {
-  const vol = (p: string) => (isRemote(p) ? p.slice(0, p.indexOf(":")) : p.slice(0, 2)).toLowerCase();
+  // ponytail: every Linux path counts as one volume, so a drag between disks moves (fsMove copies
+  // across them) rather than copies; mount points would tell them apart.
+  const vol = (p: string) => (isRemote(p) ? p.slice(0, p.indexOf(":")) : isPosix(p) ? "/" : p.slice(0, 2)).toLowerCase();
   return vol(a) === vol(b);
 }
 

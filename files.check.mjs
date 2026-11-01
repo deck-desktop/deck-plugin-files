@@ -146,4 +146,20 @@ assert.equal(L.typeAhead(names, 1, "pr"), 1);     // a longer prefix stays while
 assert.equal(L.typeAhead(names, 1, "py"), 4);
 assert.equal(L.typeAhead(names, 0, "progra"), 1);
 assert.equal(L.typeAhead(names, 0, "z"), -1);
+
+// Linux paths: this PC's, with / between parts and case that counts; never taken for a server.
+assert.equal(L.isRemote("/home/hasan"), false);
+assert.equal(L.parentOf("/home/hasan/Pictures/"), "/home/hasan");
+assert.equal(L.parentOf("/home"), "/");
+assert.equal(L.parentOf("/"), null);
+assert.equal(L.joinPath("/home/hasan", "a.txt"), "/home/hasan/a.txt");
+assert.equal(L.joinPath("/", "etc"), "/etc");
+assert.equal(L.baseName("/home/hasan/"), "hasan");
+assert.equal(L.baseName("/"), "/");
+assert.deepEqual(L.crumbs("/home/hasan").map((c) => c.path), ["/", "/home", "/home/hasan"]);
+assert.equal(L.samePath("/home/Hasan", "/home/hasan"), false, "case counts on Linux");
+assert.equal(L.samePath("/home/hasan/", "/home/hasan"), true);
+assert.equal(L.insideItself("/a/b", "/a/b/c"), true);
+assert.equal(L.insideItself("/a/b", "/a/bc"), false);
+assert.equal(L.sameVolume("/home/x", "/data/y"), true);
 console.log("files: all checks passed");
