@@ -3,7 +3,7 @@
 // timer: asking a drive for its space is a one-off.
 import { useEffect, useState } from "react";
 import { Bug, HardDrive, Plus, RefreshCw, Server, Smartphone, Star, Usb } from "lucide-react";
-import { fsDrives, remoteHome, shellPlaces, sshHosts, type Drive, type ShellPlace } from "../shim/bridge.js";
+import { fsDrives, isWindows, remoteHome, shellPlaces, sshHosts, type Drive, type ShellPlace } from "../shim/bridge.js";
 import { nameIt } from "./folders";
 import { adbDevices, type AdbDevice } from "./adb";
 import { ContextMenu, IconButton, type MenuEntry } from "../shim/ui.js";
@@ -35,7 +35,8 @@ export function Sidebar({ cwd, pins, onOpen, fail, width }: {
   const [adbPhones, setAdbPhones] = useState<AdbDevice[]>([]);
   const loadDrives = () => {
     void fsDrives().then(setDrives, (e: unknown) => fail("Reading the drives failed", e));
-    void shellPlaces().then((list: ShellPlace[]) => { for (const d of list) nameIt(d.path, d.name); setDevices(list); },
+    // Phones over USB file transfer come through Windows' shell; elsewhere there is none to ask.
+    if (isWindows()) void shellPlaces().then((list: ShellPlace[]) => { for (const d of list) nameIt(d.path, d.name); setDevices(list); },
       (e: unknown) => console.warn("[files] reading the phones failed", e));
     void adbDevices().then((list: AdbDevice[]) => { for (const d of list) nameIt(d.path, `${d.name} apps`); setAdbPhones(list); },
       () => setAdbPhones([]));
