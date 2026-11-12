@@ -18,7 +18,8 @@ import {
   type ConfirmState, type MenuEntry, type NamePromptState,
 } from "../shim/ui.js";
 import { notice, failure } from "./notice";
-import { applyDtCommand, openInEditor, switchWorkspace, workspaceByCwd } from "../shim/terminals.js";
+import { applyDtCommand, openInEditor, switchWorkspace } from "../shim/terminals.js";
+import { projectOf } from "./project";
 import { baseName, crumbs, groupEntries, isAdb, isDevice, isRemote, parentOf, previewKind, sizeLabel, sortEntries, typeAhead, type Clash, type Entry, type SortKey } from "./logic";
 import { nameOf, phoneCrumbs, relist, useListing } from "./folders";
 import { cancelJob, clipboard, create, fromPhone, paste, remove, rename, setClipboard, useClipboard, useJob, type Ask, type Choice } from "./ops";
@@ -290,8 +291,8 @@ function Explorer({ tab }: { tab: Tab }) {
       ...(e.dir ? [
         { label: "Open in a new tab", onClick: () => newTabAt(e.path) },
         // A folder already open as a workspace is switched to rather than opened twice.
-        ...(phone ? [] : [workspaceByCwd(e.path)
-          ? { label: "Go to its workspace", onClick: () => switchWorkspace(workspaceByCwd(e.path)!.id) }
+        ...(phone ? [] : [projectOf(e.path)
+          ? { label: "Go to its workspace", onClick: () => switchWorkspace(projectOf(e.path)!.id) }
           : { label: "Open as a workspace", onClick: () => applyDtCommand("new-workspace", { cwd: e.path }) }]),
       ] as MenuEntry[] : [{ label: "Open with", children: openWith(e) } as MenuEntry]),
       "sep",
