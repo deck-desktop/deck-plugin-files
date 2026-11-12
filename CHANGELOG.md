@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.4.0 (2026-11-12)
+
+- Go to its workspace finds a project by any of its folders, not only its main one.
+
 ## 0.3.0 (2026-11-01)
 
 - Runs on Linux: its paths, copies, disks and the Trash. Phones over USB stay Windows-only. Needs Deck 1.15.0.
