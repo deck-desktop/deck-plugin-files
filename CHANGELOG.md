@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+- A file dragged onto one of Deck's terminals types its path there.
+- Narrow panes: the sidebar hides, with a Places button to show it over the list, and the
+  table drops its quieter columns (type, then date, then size) as the pane narrows.
+- The table's columns are resized by dragging their edges (double-click resets one), and keep
+  their widths.
+
 ## 0.4.0 (2026-11-12)
 
 - Go to its workspace finds a project by any of its folders, not only its main one.

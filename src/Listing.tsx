@@ -1,6 +1,6 @@
 // The folder's entries, as a table (Details) or as tiles (Grid). Selection, renaming and the
 // keyboard live in Files.tsx; this draws them and reports what was clicked.
-import { memo, useEffect, useRef, useState } from "react";
+import { memo, useEffect, useMemo, useRef, useState } from "react";
 import { ArrowDown, ArrowUp } from "lucide-react";
 import { FileIcon, themeById, useEditorSettings } from "../shim/ui.js";
 import { convertFileSrc } from "../shim/bridge.js";
@@ -8,6 +8,9 @@ import { isAdb, isDevice, isRemote, previewKind, sizeLabel, typeLabel, type Entr
 import { when } from "./Preview";
 import { useThumb } from "./thumbs";
 import { DROP, pressItem } from "./drag";
+import { useWidth } from "./useWidth";
+import { colsFor, dragWidth, DEFAULT_WIDTHS, type ColKey, type ColWidths, type Cols } from "./columns";
+import { getState, update } from "./store";
 
 export interface ListProps {
   /** The folder shown: dropping files on the listing's empty space moves them here. */
@@ -166,16 +169,18 @@ function RenameBox({ e, onRename }: { e: Entry; onRename: (e: Entry, name: strin
   );
 }
 
-const COLS = "grid grid-cols-[minmax(0,1fr)_150px_130px_90px]";
+/** Which of the quieter columns a row shows (columns.ts); their widths come from --file-cols. */
+type Shown = Pick<Cols, "date" | "type" | "size">;
 
-const Row = memo(function Row({ e, on, focus, dim, renaming, theme, p }: {
-  e: Entry; on: boolean; focus: boolean; dim: boolean; renaming: boolean; theme: ReturnType<typeof themeById>; p: Latest;
+const Row = memo(function Row({ e, on, focus, dim, renaming, theme, p, cols }: {
+  e: Entry; on: boolean; focus: boolean; dim: boolean; renaming: boolean; theme: ReturnType<typeof themeById>; p: Latest; cols: Shown;
 }) {
   return (
     <div role="row" aria-selected={on} data-path={e.path} {...dropDir(e)}
       onMouseDown={(ev) => press(p.current, e, ev, !!(ev.target as HTMLElement).closest("[data-name]"))} onDoubleClick={() => p.current.onOpen(e)}
       onContextMenu={(ev) => { ev.preventDefault(); p.current.onMenu(e, ev); }}
-      className={COLS + " h-[30px] cursor-default select-none items-center rounded-md px-2.5 text-[12.5px] "
+      style={{ gridTemplateColumns: "var(--file-cols)" }}
+      className={"grid h-[30px] cursor-default select-none items-center rounded-md px-2.5 text-[12.5px] "
         + (on ? "bg-[var(--accent-soft)] text-text-primary" : "text-text-secondary hover:bg-white/5")
         + (focus ? " outline outline-1 outline-[var(--accent)]" : "")
         + (dim ? " opacity-55" : "")}>
@@ -183,9 +188,9 @@ const Row = memo(function Row({ e, on, focus, dim, renaming, theme, p }: {
         <FileIcon icon={e.dir ? theme.folder(e.name, false) : theme.file(e.name)} size={15} />
         {renaming ? <RenameBox e={e} onRename={(x, n) => p.current.onRename(x, n)} /> : <span data-name className="truncate">{e.name}</span>}
       </span>
-      <span className="truncate text-text-muted">{when(e.mtimeMs)}</span>
-      <span className="truncate text-text-muted">{typeLabel(e)}</span>
-      <span className="text-right text-text-muted">{e.dir ? "" : sizeLabel(e.size)}</span>
+      {cols.date && <span className="truncate text-text-muted">{when(e.mtimeMs)}</span>}
+      {cols.type && <span className="truncate text-text-muted">{typeLabel(e)}</span>}
+      {cols.size && <span className="text-right text-text-muted">{e.dir ? "" : sizeLabel(e.size)}</span>}
     </div>
   );
 });
@@ -194,22 +199,45 @@ export function Details(p: ListProps) {
   const theme = themeById(useEditorSettings().iconTheme);
   const latest = useLatest(p);
   const marquee = useMarquee(p, true);
+  const box = useRef<HTMLDivElement>(null);
+  // The columns' widths, as dragged (saved when a drag ends), and which fit (columns.ts). The
+  // widths reach the rows as --file-cols, so a drag redraws the template rather than every row; the
+  // rows see only which columns show.
+  const [widths, setWidths] = useState<ColWidths>(() => ({ ...DEFAULT_WIDTHS, ...getState().colWidths }));
+  const all = colsFor(useWidth(box), widths);
+  const cols = useMemo<Shown>(() => ({ date: all.date, type: all.type, size: all.size }), [all.date, all.type, all.size]);
+  const save = (next: ColWidths) => { setWidths(next); update({ colWidths: next }); };
+  const resize = (k: ColKey) => (ev: React.MouseEvent) => {
+    ev.preventDefault(); ev.stopPropagation();
+    const win = ev.currentTarget.ownerDocument.defaultView ?? window, x0 = ev.clientX, start = widths[k];
+    let last = widths;
+    const move = (e: MouseEvent) => { last = { ...last, [k]: dragWidth(start, e.clientX - x0) }; setWidths(last); };
+    const up = () => { win.removeEventListener("mousemove", move); win.removeEventListener("mouseup", up); save(last); };
+    win.addEventListener("mousemove", move);
+    win.addEventListener("mouseup", up);
+  };
   const head = (k: SortKey, label: string, right = false) => (
-    <button onClick={() => p.onSort(k)} className={"flex items-center gap-1 hover:text-text-primary " + (right ? "justify-end" : "") + (p.sort === k ? " text-text-secondary" : "")}>
-      {label}{p.sort === k && (p.asc ? <ArrowUp size={11} /> : <ArrowDown size={11} />)}
-    </button>
+    <div className="relative flex min-w-0 items-center">
+      {/* The column's left edge: dragged, it is wider or narrower; double-clicked, back to its default. */}
+      {k !== "name" && <span onMouseDown={resize(k as ColKey)} title="Drag to resize, double-click to reset"
+        onDoubleClick={() => save({ ...widths, [k]: DEFAULT_WIDTHS[k as ColKey] })}
+        className="absolute inset-y-0 -left-2 z-10 w-2 cursor-col-resize rounded-sm transition-colors hover:bg-[var(--accent)]" />}
+      <button onClick={() => p.onSort(k)} className={"flex min-w-0 flex-1 items-center gap-1 hover:text-text-primary " + (right ? "justify-end" : "") + (p.sort === k ? " text-text-secondary" : "")}>
+        <span className="truncate">{label}</span>{p.sort === k && (p.asc ? <ArrowUp size={11} /> : <ArrowDown size={11} />)}
+      </button>
+    </div>
   );
   return (
-    <div className="flex min-h-0 flex-1 flex-col" onContextMenu={(ev) => { if (ev.target === ev.currentTarget) p.onMenu(null, ev); }}>
-      <div className={COLS + " h-8 shrink-0 items-center border-b border-subtle px-4 text-[11.5px] text-text-muted"}>
-        {head("name", "Name")}{head("date", "Date modified")}{head("type", "Type")}{head("size", "Size", true)}
+    <div ref={box} className="flex min-h-0 flex-1 flex-col" style={{ "--file-cols": all.template } as React.CSSProperties} onContextMenu={(ev) => { if (ev.target === ev.currentTarget) p.onMenu(null, ev); }}>
+      <div className="grid h-8 shrink-0 items-center border-b border-subtle px-4 text-[11.5px] text-text-muted" style={{ gridTemplateColumns: "var(--file-cols)" }}>
+        {head("name", "Name")}{cols.date && head("date", "Date modified")}{cols.type && head("type", "Type")}{cols.size && head("size", "Size", true)}
       </div>
       <div role="grid" aria-label="Files" ref={marquee.ref} onMouseDown={marquee.onMouseDown} {...{ [DROP]: p.cwd }}
         className="scroll-thin relative min-h-0 flex-1 overflow-y-auto px-1.5 py-1"
         onContextMenu={(ev) => { if (ev.target === ev.currentTarget) { ev.preventDefault(); p.onMenu(null, ev); } }}>
         {inGroups(p, (e) => (
           <Row key={e.path} e={e} on={p.selected.has(e.path)} focus={p.focus === e.path} dim={p.cut.has(e.path) || !!e.hidden}
-            renaming={p.renaming === e.path} theme={theme} p={latest} />
+            renaming={p.renaming === e.path} theme={theme} p={latest} cols={cols} />
         ))}
         {marquee.overlay}
       </div>

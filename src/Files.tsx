@@ -6,7 +6,7 @@
 // browser, code in the Editor), and anything Deck has nothing for opens in Windows' own app.
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
-  ArrowLeft, ArrowRight, ArrowUp, ArrowUpDown, Check, ChevronDown, Columns2, FolderOpen, LayoutGrid, List,
+  ArrowLeft, ArrowRight, PanelLeft, ArrowUp, ArrowUpDown, Check, ChevronDown, Columns2, FolderOpen, LayoutGrid, List,
   PanelRight, RefreshCw, Search as SearchIcon, X,
 } from "lucide-react";
 import { fsOpen, fsReveal, fsList, isWindows } from "../shim/bridge.js";
@@ -27,6 +27,7 @@ import { Details, Grid } from "./Listing";
 import { Preview } from "./Preview";
 import { Search } from "./Search";
 import { Sidebar } from "./Sidebar";
+import { useWidth } from "./useWidth";
 import { getState, loadState, newTab, update, updateTab, useFilesState, type Tab } from "./store";
 import { DROP, DragBadge, TABS, setDropHost } from "./drag";
 import { opensInFloat } from "./openin";
@@ -86,6 +87,9 @@ function Explorer({ tab }: { tab: Tab }) {
   const [prompt, setPrompt] = useState<NamePromptState | null>(null);
   const [asking, setAsking] = useState<Asking | null>(null);
   const body = useRef<HTMLDivElement>(null);
+  // A narrow pane drops the sidebar and the buttons' labels (useWidth.ts); the list drops columns itself.
+  // Its button shows the sidebar over the list until a place is picked or you click away.
+  const row = useRef<HTMLDivElement>(null), narrow = useWidth(row) < 560, [sideOpen, setSideOpen] = useState(false);
   // The sidebar and the preview pane are dragged wider or narrower by their inner edge; the width
   // is kept for every tab once the drag ends.
   const [sideW, sideDrag, sideDragging] = useResize({ initial: s.sidebarWidth ?? 224, min: 150, max: 420, direction: "horizontal" });
@@ -424,6 +428,8 @@ function Explorer({ tab }: { tab: Tab }) {
       </div>
 
       <div className="flex h-12 shrink-0 items-center gap-1.5 border-b border-subtle px-2.5">
+        {narrow && <button className={tool} title="Places" aria-label="Show the sidebar" aria-pressed={sideOpen} onClick={() => setSideOpen((v) => !v)}
+          style={sideOpen ? { color: "var(--accent)" } : undefined}><PanelLeft size={16} /></button>}
         <button className={tool} title="Back (Alt+Left)" aria-label="Back" disabled={!h.back.length} onClick={back}><ArrowLeft size={16} /></button>
         <button className={tool} title="Forward (Alt+Right)" aria-label="Forward" disabled={!h.fwd.length} onClick={forward}><ArrowRight size={16} /></button>
         <button className={tool} title="Up (Alt+Up)" aria-label="Up" disabled={!parentOf(cwd)} onClick={up}><ArrowUp size={16} /></button>
@@ -468,15 +474,22 @@ function Explorer({ tab }: { tab: Tab }) {
           {query && <button aria-label="Clear the search" onClick={() => { setQuery(""); setSearched(""); }} className="text-text-muted hover:text-text-primary"><X size={13} /></button>}
         </label>
 
-        <button className={menuButton} aria-haspopup="menu" onClick={sortMenu}><ArrowUpDown size={14} />Sort<ChevronDown size={12} className="text-text-muted" /></button>
+        <button className={menuButton} aria-haspopup="menu" onClick={sortMenu} title="Sort"><ArrowUpDown size={14} />{!narrow && "Sort"}<ChevronDown size={12} className="text-text-muted" /></button>
         <button className={menuButton} aria-haspopup="menu" onClick={viewMenu}>
-          {tab.view === "grid" ? <LayoutGrid size={14} /> : <List size={14} />}View<ChevronDown size={12} className="text-text-muted" />
+          {tab.view === "grid" ? <LayoutGrid size={14} /> : <List size={14} />}{!narrow && "View"}<ChevronDown size={12} className="text-text-muted" />
         </button>
       </div>
 
-      <div className="flex min-h-0 flex-1">
-        <Sidebar cwd={cwd} pins={s.pins} onOpen={(p) => go(p)} fail={fail} width={sideW} />
-        <div {...sideDrag} title="Drag to resize" className={splitter} />
+      <div ref={row} className="relative flex min-h-0 flex-1">
+        {!narrow && <Sidebar cwd={cwd} pins={s.pins} onOpen={(p) => go(p)} fail={fail} width={sideW} />}
+        {narrow && sideOpen && <>
+          <div className="absolute inset-0 z-10" onMouseDown={() => setSideOpen(false)} />
+          <div className="absolute inset-y-0 left-0 z-20 flex border-r border-subtle shadow-2xl" style={{ background: "var(--bg-card)" }}
+            onKeyDown={(ev) => { if (ev.key === "Escape") setSideOpen(false); }}>
+            <Sidebar cwd={cwd} pins={s.pins} onOpen={(p) => { setSideOpen(false); go(p); }} fail={fail} width={Math.min(sideW, 240)} />
+          </div>
+        </>}
+        {!narrow && <div {...sideDrag} title="Drag to resize" className={splitter} />}
         <div ref={body} tabIndex={0} onKeyDown={onKeyDown} aria-label={nameOf(cwd)}
           onMouseDown={(ev) => { if ((ev.target as HTMLElement).closest("[data-path]") === null && ev.button === 0) { setSelected(new Set()); setFocus(null); } }}
           className="flex min-w-0 flex-1 flex-col outline-none">

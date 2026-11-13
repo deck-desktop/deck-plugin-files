@@ -12,6 +12,7 @@ import { transfer, type Ask } from "./ops";
 import { getState, update } from "./store";
 import { baseName, canDrop, sameVolume } from "./logic";
 import { notice } from "./notice";
+import { termWrite } from "../shim/terminals.js";
 
 /** A drop target names its folder in this attribute. */
 export const DROP = "data-drop-dir";
@@ -84,6 +85,8 @@ export function pressItem(ev: React.MouseEvent, items: () => { path: string; dir
     const was = list, dest = into, copy = copyFor(e);
     end();
     if (!was) { onClick(); return; }
+    // Let go over one of Deck's terminals: the paths typed there, as from the system's file manager.
+    if (!dest && typeIntoTerminal(was.map((i) => i.path), doc.elementFromPoint(e.clientX, e.clientY))) return;
     if (!dest || !host) return;
     const h = host;
     void transfer(was, dest, !copy, h.ask).then(
@@ -95,6 +98,20 @@ export function pressItem(ev: React.MouseEvent, items: () => { path: string; dir
   win.addEventListener("mousemove", move);
   win.addEventListener("mouseup", up);
   win.addEventListener("keydown", key, true);
+}
+
+/**
+ * Paths dropped on a Deck terminal (`el` the element under the pointer): typed at its cursor, quoted
+ * where a shell needs it, with a space after, as Deck does for a drop from Windows Explorer. False
+ * when `el` is not in a terminal.
+ */
+function typeIntoTerminal(paths: string[], el: Element | null): boolean {
+  if (!el?.closest(".xterm")) return false;
+  const pane = (el.closest("[data-pane-id]") as HTMLElement | null)?.dataset.paneId;
+  if (!pane) return false;
+  const quote = (p: string) => (/[\s"'`$&|<>();]/.test(p) ? `"${p.replace(/"/g, '\\"')}"` : p);
+  void termWrite(pane, paths.map(quote).join(" ") + " ").catch((err) => console.warn("[files] typing the paths into the terminal failed", err));
+  return true;
 }
 
 /** What is being dragged, beside the pointer: how many, and where to. */

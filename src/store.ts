@@ -3,6 +3,7 @@
 // are not looking at; kept in the plugin's own config, written only when it changed (Deck's
 // performance rule 3: every write wakes every config listener).
 import { useSyncExternalStore } from "react";
+import type { ColWidths } from "./columns";
 import { configRead, configWrite, fsHomeDir, isWindows } from "../shim/bridge.js";
 import { joinPath, type GroupKey, type SortKey } from "./logic";
 
@@ -20,6 +21,8 @@ export interface State {
   /** The sidebar's and the preview pane's widths, as last dragged. */
   sidebarWidth?: number;
   previewWidth?: number;
+  /** The table's columns' widths, as dragged (columns.ts). */
+  colWidths?: ColWidths;
 }
 
 const CONFIG = "files";
