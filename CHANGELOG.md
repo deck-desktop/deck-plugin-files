@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.5.0 (2026-11-13)
 
 - A file dragged onto one of Deck's terminals types its path there.
 - Narrow panes: the sidebar hides, with a Places button to show it over the list, and the
