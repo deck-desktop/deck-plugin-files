@@ -162,4 +162,16 @@ assert.equal(L.samePath("/home/hasan/", "/home/hasan"), true);
 assert.equal(L.insideItself("/a/b", "/a/b/c"), true);
 assert.equal(L.insideItself("/a/b", "/a/bc"), false);
 assert.equal(L.sameVolume("/home/x", "/data/y"), true);
+// The table's columns (columns.ts): which fit a width, and a dragged width's bounds.
+const co = await build({ entryPoints: [new URL("./src/columns.ts", import.meta.url).pathname.replace(/^\/(\w:)/, "$1")], bundle: true, write: false, format: "esm", platform: "node" });
+const C = await import("data:text/javascript;base64," + Buffer.from(co.outputFiles[0].text).toString("base64"));
+const W = C.DEFAULT_WIDTHS;
+assert.deepEqual([900, 500, 400, 200].map((w) => { const c = C.colsFor(w, W); return [c.date, c.type, c.size]; }),
+  [[true, true, true], [true, false, true], [false, false, true], [false, false, false]], "Type goes first, then the date, then the size");
+assert.equal(C.colsFor(900, W).template, "minmax(0,1fr) 150px 130px 90px");
+assert.equal(C.colsFor(900, { ...W, date: 300 }).template, "minmax(0,1fr) 300px 130px 90px", "a dragged width is used");
+assert.equal(C.colsFor(560, { ...W, date: 300 }).type, false, "a wider column leaves less room, so Type goes sooner");
+assert.equal(C.dragWidth(150, -50), 200, "dragging the left edge left widens it");
+assert.equal(C.dragWidth(150, 500), C.COL_MIN);
+assert.equal(C.dragWidth(150, -900), C.COL_MAX);
 console.log("files: all checks passed");
