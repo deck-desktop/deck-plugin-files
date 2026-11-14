@@ -48,6 +48,13 @@ export function pressItem(ev: React.MouseEvent, items: () => { path: string; dir
     over = el;
     if (el) { el.style.outline = "1px solid var(--accent)"; el.style.outlineOffset = "-1px"; }
   };
+  let lit: Element | null = null;
+  const light = (pane: Element | null) => {
+    if (lit === pane) return;
+    lit?.classList.remove("drop-target");
+    pane?.classList.add("drop-target");
+    lit = pane;
+  };
   const copyFor = (e: MouseEvent) => (e.ctrlKey ? true : e.shiftKey ? false : !!into && !!list && !sameVolume(list[0].path, into));
   const target = (e: MouseEvent) => {
     const x = e.clientX, y = e.clientY;
@@ -65,6 +72,9 @@ export function pressItem(ev: React.MouseEvent, items: () => { path: string; dir
     const dir = tabDir ?? dropEl?.getAttribute(DROP) ?? null;
     const ok = !!dir && !!list && canDrop(list, dir);
     mark(ok ? dropEl : null);
+    // Over one of Deck's terminals, or a pane it shows as a chat: that pane outlined as Deck does for
+    // a drop from Explorer (its "drop-target" class; a chat shows its drop zone).
+    light(!ok && el && (el.closest("[data-drop-paths]") || el.closest(".xterm")) ? el.closest("[data-pane-id]") : null);
     into = ok ? dir : null;
     set({ x, y, count: list!.length, copy: copyFor(e), into: into && baseName(into) });
   };
@@ -76,6 +86,7 @@ export function pressItem(ev: React.MouseEvent, items: () => { path: string; dir
   const end = () => {
     win.clearTimeout(tabTimer);
     mark(null);
+    light(null);
     win.removeEventListener("mousemove", move);
     win.removeEventListener("mouseup", up);
     win.removeEventListener("keydown", key, true);
@@ -106,6 +117,9 @@ export function pressItem(ev: React.MouseEvent, items: () => { path: string; dir
  * when `el` is not in a terminal.
  */
 function typeIntoTerminal(paths: string[], el: Element | null): boolean {
+  // A pane Deck shows as a chat takes the paths into its message box (Deck's filedrop.ts).
+  const chat = el?.closest("[data-drop-paths]");
+  if (chat) { chat.dispatchEvent(new CustomEvent("deck-drop-paths", { detail: paths })); return true; }
   if (!el?.closest(".xterm")) return false;
   const pane = (el.closest("[data-pane-id]") as HTMLElement | null)?.dataset.paneId;
   if (!pane) return false;
