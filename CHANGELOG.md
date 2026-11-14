@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.6.0 (2026-11-14)
+
+- Files dropped on a Claude chat in Deck go into its message box, and the pane under a drag is
+  outlined. Needs Deck 1.18.0.
+
 ## 0.5.0 (2026-11-13)
 
 - A file dragged onto one of Deck's terminals types its path there.
