@@ -18,12 +18,22 @@ const snap = (r: Rect): Rect => { const x = Math.round(r.x), y = Math.round(r.y)
 const PAD = 3, GAP = 1;
 
 /**
- * What a block has room to show: its name only when the whole name fits (a cut name, "cha…", says
- * nothing), and its size under it, or alone where the name does not fit.
+ * What a block has room to show, and its padding. The size comes first: the name is shown only with
+ * it, and only when the whole name fits (a cut name, "cha…", says nothing). Where the size alone does
+ * not fit it is tried smaller and without its space ("448MB"), with the thinnest margin. Widths are
+ * estimated from the text's length (12px, 11px and 10px Inter).
  */
-function labelsOf(b: Block): { name: boolean; size: boolean } {
-  const name = b.rect.w > 46 && b.rect.h > 22 && b.name.length * 6.8 + 18 <= b.rect.w;
-  return { name, size: b.rect.w > 44 && b.rect.h > (name ? 38 : 22) };
+function labelsOf(b: Block): { name: boolean; size: string | null; tiny: boolean; px: number; py: number } {
+  const w = b.rect.w - 2 * GAP - 2, h = b.rect.h - 2 * GAP - 2;
+  const small = w < 90 || h < 44;
+  const px = small ? 4 : 8, py = small ? 2 : 6;
+  const label = sizeLabel(b.size);
+  const sizeFits = label.length * 6.1 + 2 * px <= w;
+  if (sizeFits && b.name.length * 6.8 + 2 * px <= w && 30 + 2 * py <= h) return { name: true, size: label, tiny: false, px, py };
+  if (sizeFits && 14 + 2 * py <= h) return { name: false, size: label, tiny: false, px, py };
+  const tiny = label.replace(" ", "");
+  if (tiny.length * 5.6 + 4 <= w && 13 <= h) return { name: false, size: tiny, tiny: true, px: 2, py: 0 };
+  return { name: false, size: null, tiny: false, px: 0, py: 0 };
 }
 
 function layout(n: UsageNode, path: string, box: Rect): Block[] {
@@ -113,21 +123,22 @@ export function TreemapTab({ report, gone, onMenu }: { report: Report; gone: Set
       </div>
       <div ref={box} className="relative mx-4 mb-4 min-h-0 flex-1" onMouseLeave={() => setHover(null)}
         onMouseMove={(e) => { const r = e.currentTarget.getBoundingClientRect(); at.current = { x: e.clientX - r.left, y: e.clientY - r.top }; place(); }}>
-        {blocks.map((b) => (
+        {blocks.map((b) => { const lab = labelsOf(b); return (
           <div key={b.key} onClick={(e) => { e.stopPropagation(); into(b); }}
             onContextMenu={(e) => { if (!b.node) return; e.preventDefault(); e.stopPropagation(); onMenu(b.path, e.clientX, e.clientY); }}
             onMouseEnter={() => setHover(b)}
-            className={"absolute box-border flex flex-col overflow-hidden " + (labelsOf(b).name || labelsOf(b).size ? "px-2 py-1.5 " : "") + (b.node?.children.length ? "cursor-zoom-in" : "")}
+            className={"absolute box-border flex flex-col overflow-hidden " + "" + (b.node?.children.length ? "cursor-zoom-in" : "")}
             style={{
+              padding: lab.name || lab.size ? `${lab.py}px ${lab.px}px` : 0,
               left: b.rect.x + GAP, top: b.rect.y + GAP, width: Math.max(0, b.rect.w - 2 * GAP), height: Math.max(0, b.rect.h - 2 * GAP),
               background: `color-mix(in srgb, ${b.color} ${b.depth ? 26 : b.node ? 10 : 6}%, transparent)`,
               border: `1px solid color-mix(in srgb, ${b.color} ${b.depth ? 55 : 40}%, transparent)`,
               outline: hover?.key === b.key ? "1px solid var(--text-primary)" : undefined,
             }}>
-            {labelsOf(b).name && <span className={"truncate text-[12px] leading-4 " + (b.depth ? "text-text-primary" : "font-semibold text-text-primary")}>{b.name}</span>}
-            {labelsOf(b).size && <span className="truncate text-[11px] leading-[14px] text-text-secondary">{sizeLabel(b.size)}</span>}
+            {lab.name && <span className={"truncate text-[12px] leading-4 " + (b.depth ? "text-text-primary" : "font-semibold text-text-primary")}>{b.name}</span>}
+            {lab.size && <span className={"whitespace-nowrap text-text-secondary " + (lab.tiny ? "text-[10px] leading-[13px]" : "text-[11px] leading-[14px]")}>{lab.size}</span>}
           </div>
-        ))}
+        ); })}
         {hover && rested && (
           <div ref={tip} className="pointer-events-none absolute left-0 top-0 z-10 flex max-w-[420px] flex-col gap-0.5 whitespace-nowrap rounded-md border border-subtle bg-elev/95 px-2 py-1 text-[11.5px] shadow-lg">
             <span className="truncate font-mono text-[11px] text-text-muted">{hover.node ? hover.path : path}</span>
