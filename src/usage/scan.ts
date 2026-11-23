@@ -19,6 +19,8 @@ export interface Scan {
   started: number;
   took: number;
   error?: string;
+  /** The top-level folders that could not be read at all, by path (deeper ones are only counted). */
+  unreadable: string[];
 }
 
 const scans = new Map<string, Scan>();
@@ -32,7 +34,7 @@ const set = (root: string, s: Scan) => { scans.set(root, s); emit(); };
 export async function scan(root: string) {
   stops.delete(root);
   const started = Date.now();
-  let s: Scan = { report: emptyReport(root), state: "scanning", done: 0, total: 0, current: "", started, took: 0 };
+  let s: Scan = { report: emptyReport(root), state: "scanning", done: 0, total: 0, current: "", started, took: 0, unreadable: [] };
   set(root, s);
   try {
     const entries = await fsList(root, true);
@@ -49,7 +51,7 @@ export async function scan(root: string) {
       } catch (e) {
         // One folder that cannot be read (in use, no access) is counted and the rest go on.
         console.warn(`[files] measuring ${d.path} failed`, e);
-        s = { ...s, report: { ...s.report, skipped: s.report.skipped + 1 }, done: s.done + 1 };
+        s = { ...s, report: { ...s.report, skipped: s.report.skipped + 1 }, done: s.done + 1, unreadable: [...s.unreadable, d.path] };
       }
       set(root, s);
     }

@@ -70,7 +70,13 @@ export function UsageView({ root, onClose, onOpen, onAnalyze }: {
   const status = !s ? "" : s.state === "scanning"
     ? `${s.done} of ${s.total} folders · ${r!.tree.files.toLocaleString()} files${s.current ? ` · now in ${s.current}` : ""}`
     : s.state === "failed" ? `Could not be measured: ${s.error}`
-    : `${r!.tree.files.toLocaleString()} files in ${r!.dirs.toLocaleString()} folders · ${s.state === "stopped" ? "stopped after" : "measured in"} ${seconds(s.took)}${r!.skipped ? ` · ${r!.skipped} folder${r!.skipped === 1 ? "" : "s"} could not be read` : ""}`;
+    : `${r!.tree.files.toLocaleString()} files in ${r!.dirs.toLocaleString()} folders · ${s.state === "stopped" ? "stopped after" : "measured in"} ${seconds(s.took)}`;
+  // Folders Windows keeps to itself (System Volume Information, Config.Msi) or that are in use: named
+  // in the tooltip where they are known, which is when a whole top-level folder could not be read.
+  const skipped = r && s?.state !== "scanning" && r.skipped > 0 ? `${r.skipped} folder${r.skipped === 1 ? "" : "s"} could not be read` : "";
+  const skippedWhy = s?.unreadable.length
+    ? `${s.unreadable.join("\n")}\n\nWindows lets only itself or an administrator into these, so their size is not counted.`
+    : "Windows did not let Deck into these, usually system folders, so their size is not counted.";
 
   return (
     <div className="flex min-h-0 flex-1 flex-col bg-app">
@@ -81,7 +87,7 @@ export function UsageView({ root, onClose, onOpen, onAnalyze }: {
             <span className="truncate text-text-primary">{s?.state === "scanning" ? `Measuring ${baseName(root)}` : baseName(root)}</span>
             {r && <span style={{ color: "var(--accent)" }}>{sizeLabel(r.tree.size)}{s?.state === "scanning" ? " so far" : ""}</span>}
           </span>
-          <span className="truncate text-[12px] text-text-muted" title={status}>{status}</span>
+          <span className="truncate text-[12px] text-text-muted" title={status}>{status}{skipped && <> · <span className="cursor-help underline decoration-dotted underline-offset-2" title={skippedWhy}>{skipped}</span></>}</span>
         </div>
         {s?.state === "scanning" ? <>
           <span className="h-1.5 w-52 overflow-hidden rounded-full bg-elev"><span className="block h-full transition-[width]" style={{ width: `${(s.done / Math.max(1, s.total)) * 100}%`, background: "var(--accent)" }} /></span>
