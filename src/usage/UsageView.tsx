@@ -45,9 +45,9 @@ export function UsageView({ root, onClose, onOpen, onAnalyze }: {
 
   // Gone from the screen at once, and from the report's totals, so no rescan is needed after a delete.
   const onGone = (paths: string[]) => { setGone((g) => new Set([...g, ...paths])); forgetPaths(root, paths); };
-  const trashFolder = (path: string, size: number) => setConfirm({
+  const trashFolder = (path: string, size: number, file = false) => setConfirm({
     title: `Move ${baseName(path)} to ${bin}?`,
-    body: `${sizeLabel(size)}, with everything in it. It can be restored from ${bin}.`,
+    body: `${sizeLabel(size)}${file ? "" : ", with everything in it"}. It can be restored from ${bin}.`,
     confirmLabel: "Move", danger: true,
     onConfirm: () => void remove([path], false).then(() => { onGone([path]); notice(`${baseName(path)} moved to ${bin}`); },
       (e: unknown) => { console.warn("[files] moving a folder to the bin failed", e); failure("Moving to the bin failed", String(e).replace(/^Error: /, "")); }),
@@ -59,6 +59,15 @@ export function UsageView({ root, onClose, onOpen, onAnalyze }: {
     { label: "Copy path", onClick: () => void navigator.clipboard.writeText(path).then(() => notice("Path copied")) },
     "sep",
     { label: `Move to ${bin}…`, danger: true, onClick: () => trashFolder(path, s ? nodeAt(s.report.tree, partsBelow(root, path))?.size ?? 0 : 0) },
+  ] });
+  // A file's menu, where one is shown outside the file lists (a treemap block, a duplicate).
+  const fileMenu = (path: string, x: number, y: number) => setMenu({ x, y, items: [
+    { label: "Open", onClick: () => void fsOpen(path).catch((e: unknown) => console.warn("[files] opening a file failed", e)) },
+    { label: isWindows() ? "Show in Windows Explorer" : "Show in the file manager", onClick: () => void fsReveal(path).catch((e: unknown) => console.warn("[files] reveal failed", e)) },
+    { label: "Open its folder in Files", onClick: () => { const d = parentOf(path); if (d) onOpen(d); } },
+    { label: "Copy path", onClick: () => void navigator.clipboard.writeText(path).then(() => notice("Path copied")) },
+    "sep",
+    { label: `Move to ${bin}…`, danger: true, onClick: () => trashFolder(path, s?.report.big.find((f) => f.path === path)?.size ?? 0, true) },
   ] });
   const exportCsv = async () => {
     if (!s) return;
