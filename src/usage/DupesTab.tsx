@@ -61,7 +61,7 @@ export function DupesTab({ report, gone, onGone }: { report: Report; gone: Set<s
   const safe = shown.every((s) => s.some((f) => !ticked.has(f.path)));
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col bg-card">
+    <div className="flex min-h-0 flex-1 flex-col">
       <div className="flex h-14 shrink-0 items-center gap-3.5 border-b border-subtle px-4 text-[12.5px]">
         <div className="flex flex-col gap-0.5">
           <span className="text-text-primary">
@@ -81,7 +81,7 @@ export function DupesTab({ report, gone, onGone }: { report: Report; gone: Set<s
         {run && !run.on && !shown.length && <span className="m-auto text-[12.5px] text-text-muted">No copies found among these files.</span>}
         {shown.map((set) => (
           <div key={set[0].path} className="flex flex-col overflow-hidden rounded-lg border border-subtle">
-            <div className="flex h-9 items-center gap-2.5 bg-panel px-3 text-[12.5px]">
+            <div className="flex h-9 items-center gap-2.5 px-3 text-[12.5px]">
               <span className="font-semibold text-text-primary">{baseName(set[0].path)}</span>
               <span className="text-text-muted">{sizeLabel(set[0].size)} × {set.length}</span>
               <span className="ml-auto" style={{ color: "var(--accent)" }}>{sizeLabel(set[0].size * (set.length - 1))} could be freed</span>
@@ -98,7 +98,7 @@ export function DupesTab({ report, gone, onGone }: { report: Report; gone: Set<s
         ))}
       </div>
       {shown.length > 0 && (
-        <div className="flex h-12 shrink-0 items-center gap-2 border-t border-subtle bg-panel px-4 text-[12.5px] text-text-secondary">
+        <div className="flex h-12 shrink-0 items-center gap-2 border-t border-subtle px-4 text-[12.5px] text-text-secondary">
           <button className={btn} onClick={() => setTicked(new Set(shown.flatMap((s) => s.slice(1).map((f) => f.path))))}>Select all but the newest in each set</button>
           <span className="ml-2">{chosen.length} selected · {sizeLabel(chosen.reduce((s, f) => s + f.size, 0))}</span>
           {!safe && <span className="text-amber-300">Leave one copy of each set unticked</span>}

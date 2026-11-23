@@ -89,7 +89,7 @@ export function UsageView({ root, onClose, onOpen, onAnalyze }: {
 
   return (
     <div className="flex min-h-0 flex-1 flex-col bg-app">
-      <div className="flex h-[52px] shrink-0 items-center gap-4 border-b border-subtle bg-card px-3">
+      <div className="flex h-[52px] shrink-0 items-center gap-4 border-b border-subtle px-3">
         <button onClick={onClose} title="Back to the files" aria-label="Back to the files" className="grid size-8 shrink-0 place-items-center rounded-lg text-text-muted hover:bg-white/5 hover:text-text-primary"><ArrowLeft size={16} /></button>
         <div className="flex min-w-0 flex-1 flex-col gap-0.5">
           <span className="flex items-baseline gap-2.5 text-[15px] font-semibold">
@@ -111,7 +111,7 @@ export function UsageView({ root, onClose, onOpen, onAnalyze }: {
           <button className={btn} disabled={!r} onClick={() => void exportCsv()}>Export CSV</button>
         </>}
       </div>
-      <div className="flex h-[38px] shrink-0 items-end gap-1 border-b border-subtle bg-card px-3" role="tablist">
+      <div className="flex h-[38px] shrink-0 items-end gap-1 border-b border-subtle px-3" role="tablist">
         {TABS.map(([id, label]) => (
           <button key={id} role="tab" aria-selected={tab === id} onClick={() => setTab(id)}
             className={"h-[34px] px-3.5 text-[12.5px] font-medium " + (tab === id ? "text-text-primary" : "text-text-muted hover:text-text-primary")}

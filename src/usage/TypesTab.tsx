@@ -8,7 +8,7 @@ export function TypesTab({ report, onPick }: { report: Report; onPick: (ext: str
   const total = report.tree.size || 1;
   const grid = "grid grid-cols-[130px_120px_minmax(0,1fr)_96px_96px_90px] items-center gap-3";
   return (
-    <div className="flex min-h-0 flex-1 flex-col bg-card">
+    <div className="flex min-h-0 flex-1 flex-col">
       <div className="flex shrink-0 flex-col gap-2.5 p-4">
         <div className="flex h-3.5 gap-0.5 overflow-hidden rounded">
           {kinds.map((k) => <div key={k.name} title={`${k.name}: ${sizeLabel(k.size)}`} style={{ flex: `${k.size} 1 0`, background: k.color, opacity: 0.75 }} />)}

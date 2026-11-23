@@ -12,7 +12,7 @@ export function LargestTab({ report, gone, onGone, kind, setKind }: {
   const kinds = useMemo(() => byKind(report.types).map((k) => k.name), [report.types]);
   const files = useMemo(() => report.big.filter((f) => !kind || kindOf(extOf(f.path)).name === kind || extOf(f.path) === kind), [report.big, kind]);
   return (
-    <div className="flex min-h-0 flex-1 flex-col bg-card">
+    <div className="flex min-h-0 flex-1 flex-col">
       <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-subtle px-4 py-2.5">
         <button className={chip(!kind)} onClick={() => setKind(null)}>All</button>
         {kinds.map((k) => <button key={k} className={chip(kind === k)} onClick={() => setKind(k)}>{k}</button>)}

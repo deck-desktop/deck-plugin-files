@@ -60,7 +60,7 @@ export function TreeTab({ report, free, gone, onOpen, onTrash, onMenu }: {
 
   return (
     <div className="flex min-h-0 flex-1">
-      <div className="flex min-w-0 flex-1 flex-col bg-card">
+      <div className="flex min-w-0 flex-1 flex-col">
         <div className={grid + " h-8 shrink-0 border-b border-subtle px-4 text-[11.5px] text-text-muted"}>
           <span>Name</span><span className="text-right">Size</span><span>Share of the folder above</span><span className="text-right">Files</span><span>Last change</span>
         </div>
@@ -95,7 +95,7 @@ export function TreeTab({ report, free, gone, onOpen, onTrash, onMenu }: {
           })}
         </div>
       </div>
-      <div className="flex w-[300px] shrink-0 flex-col gap-4 overflow-y-auto border-l border-subtle bg-panel p-4 text-[12.5px]">
+      <div className="flex w-[300px] shrink-0 flex-col gap-4 overflow-y-auto border-l border-subtle p-4 text-[12.5px]">
         <div className="flex flex-col gap-1">
           <span className="truncate text-[14px] font-semibold text-text-primary">{sel.name}</span>
           <span className="break-all font-mono text-[11px] text-text-muted">{picked}</span>

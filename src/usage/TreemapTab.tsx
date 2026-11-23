@@ -70,7 +70,7 @@ export function TreemapTab({ report, gone, onMenu }: { report: Report; gone: Set
   const into = (b: Block) => { if (!b.node?.children.length) return; setHover(null); setZoom(b.path.slice(report.root.length).split(/[\\/]/).filter(Boolean)); };
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col bg-card">
+    <div className="flex min-h-0 flex-1 flex-col">
       <div className="flex h-10 shrink-0 items-center gap-1 px-4 text-[12px] text-text-muted">
         {[report.tree.name, ...zoom].map((n, i, all) => (
           <span key={i} className="flex items-center gap-1">

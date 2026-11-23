@@ -11,7 +11,7 @@ export function AgeTab({ report, gone, onGone }: { report: Report; gone: Set<str
   const now = Date.now();
   const files: UsageFile[] = useMemo(() => report.big.filter((f) => ageBucket(f.mtime, now) === bucket), [report.big, bucket]); // eslint-disable-line react-hooks/exhaustive-deps
   return (
-    <div className="flex min-h-0 flex-1 flex-col bg-card">
+    <div className="flex min-h-0 flex-1 flex-col">
       {/* One compact card a bucket, its bar along its foot: the list under them keeps the height, which
           a chart of tall columns took on a small window. */}
       <div className="grid shrink-0 grid-cols-[repeat(auto-fit,minmax(130px,1fr))] gap-2 border-b border-subtle p-3" role="tablist" aria-label="Space by when a file last changed">

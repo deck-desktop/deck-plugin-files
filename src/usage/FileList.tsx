@@ -75,7 +75,7 @@ export function FileList({ files, gone, onGone, empty }: {
           </label>
         ))}
       </div>
-      <div className="flex h-12 shrink-0 items-center gap-2 border-t border-subtle bg-panel px-4 text-[12.5px] text-text-secondary">
+      <div className="flex h-12 shrink-0 items-center gap-2 border-t border-subtle px-4 text-[12.5px] text-text-secondary">
         <span>{chosen.length ? `${chosen.length} selected · ${sizeLabel(chosen.reduce((s, f) => s + f.size, 0))}` : `${shown.length} files · double-click one to show it in its folder`}</span>
         <div className="ml-auto flex gap-2">
           <button className={btn} disabled={chosen.length !== 1} onClick={() => void fsReveal(chosen[0].path).catch((e: unknown) => console.warn("[files] reveal failed", e))}>Show in folder</button>
