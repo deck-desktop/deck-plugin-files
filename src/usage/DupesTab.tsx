@@ -11,36 +11,52 @@ import { notice, failure } from "../notice";
 import { agoLabel, type Report } from "./report";
 import { freeable, sameContent, sameSize } from "./dupes";
 
+/** The bytes read from each end of a file in the first pass, and how many files go to Deck at once. */
+const SAMPLE = 1 << 20, SAMPLE_BATCH = 64;
 const btn = "h-[30px] rounded-lg border border-subtle bg-elev px-3 text-[12.5px] text-text-secondary transition-colors hover:border-strong hover:text-text-primary disabled:opacity-40";
 
 export function DupesTab({ report, gone, onGone, onMenu }: { report: Report; gone: Set<string>; onGone: (p: string[]) => void; onMenu: (path: string, x: number, y: number) => void }) {
   const [sets, setSets] = useState<UsageFile[][]>([]);
-  const [run, setRun] = useState<{ done: number; total: number; on: boolean } | null>(null);
+  const [run, setRun] = useState<{ phase: "ends" | "whole"; done: number; total: number; on: boolean } | null>(null);
   const [ticked, setTicked] = useState<Set<string>>(new Set());
   const [confirm, setConfirm] = useState<ConfirmState | null>(null);
   const stop = useRef(false);
   useEffect(() => () => { stop.current = true; }, []);
 
+  // Two passes. First the start and end of every same-size file (a megabyte each, many files at once),
+  // which rules out nearly all of them without reading them whole; then only the files that still
+  // match are read in full, a set at a time, largest first, so sets appear as they are confirmed.
   const find = async () => {
     stop.current = false;
     setSets([]); setTicked(new Set());
     const groups = sameSize(report.big.filter((f) => !gone.has(f.path)));
-    const total = groups.reduce((s, g) => s + g.length, 0);
+    const all = groups.flat();
+    const sample = new Map<string, string | null>();
+    setRun({ phase: "ends", done: 0, total: all.length, on: true });
+    for (let i = 0; i < all.length && !stop.current; i += SAMPLE_BATCH) {
+      const batch = all.slice(i, i + SAMPLE_BATCH);
+      try { (await fsHash(batch.map((f) => f.path), SAMPLE)).forEach((h, k) => sample.set(batch[k].path, h)); }
+      catch (e) { console.warn("[files] comparing the ends of files failed", e); }
+      setRun({ phase: "ends", done: Math.min(all.length, i + SAMPLE_BATCH), total: all.length, on: true });
+    }
+    const candidates = groups.flatMap((g) => sameContent(g, g.map((f) => sample.get(f.path) ?? null)));
+    const total = candidates.reduce((n, g) => n + g.length, 0);
     let done = 0;
-    setRun({ done, total, on: true });
-    for (const g of groups) {
+    setRun({ phase: "whole", done, total, on: !stop.current });
+    for (const g of candidates) {
       if (stop.current) break;
       try {
-        const found = sameContent(g, await fsHash(g.map((f) => f.path)));
+        // A file no longer than both samples together was read whole already.
+        const found = g[0].size <= 2 * SAMPLE ? [g] : sameContent(g, await fsHash(g.map((f) => f.path)));
         if (found.length) {
           setSets((s) => [...s, ...found]);
           setTicked((t) => new Set([...t, ...found.flatMap((set) => set.slice(1).map((f) => f.path))]));
         }
       } catch (e) { console.warn("[files] comparing files failed", e); }
       done += g.length;
-      setRun({ done, total, on: true });
+      setRun({ phase: "whole", done, total, on: true });
     }
-    setRun({ done, total, on: false });
+    setRun({ phase: "whole", done, total, on: false });
   };
 
   const shown = sets.map((s) => s.filter((f) => !gone.has(f.path))).filter((s) => s.length > 1);
@@ -71,7 +87,7 @@ export function DupesTab({ report, gone, onGone, onMenu }: { report: Report; gon
         </div>
         <div className="ml-auto flex items-center gap-2.5">
           {run?.on ? <>
-            <span className="text-text-secondary">Comparing {run.done.toLocaleString()} of {run.total.toLocaleString()} files</span>
+            <span className="text-text-secondary">{run.phase === "ends" ? "Checking the start and end of" : "Comparing in full"} {run.done.toLocaleString()} of {run.total.toLocaleString()} files</span>
             <span className="h-1.5 w-40 overflow-hidden rounded-full bg-elev"><span className="block h-full" style={{ width: `${(run.done / Math.max(1, run.total)) * 100}%`, background: "var(--accent)" }} /></span>
             <button className={btn} onClick={() => { stop.current = true; }}>Stop</button>
           </> : <button className={btn} onClick={() => void find()}>{run ? "Compare again" : "Find duplicates"}</button>}
@@ -80,7 +96,7 @@ export function DupesTab({ report, gone, onGone, onMenu }: { report: Report; gon
       <div className="flex min-h-0 flex-1 flex-col gap-2.5 overflow-y-auto px-4 py-3">
         {run && !run.on && !shown.length && <span className="m-auto text-[12.5px] text-text-muted">No copies found among these files.</span>}
         {shown.map((set) => (
-          <div key={set[0].path} className="flex flex-col overflow-hidden rounded-lg border border-subtle">
+          <div key={set[0].path} className="flex shrink-0 flex-col overflow-hidden rounded-lg border border-subtle">
             <div className="flex h-9 items-center gap-2.5 px-3 text-[12.5px]">
               <span className="font-semibold text-text-primary">{baseName(set[0].path)}</span>
               <span className="text-text-muted">{sizeLabel(set[0].size)} × {set.length}</span>
