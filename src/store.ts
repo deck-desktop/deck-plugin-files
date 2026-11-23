@@ -8,7 +8,8 @@ import { configRead, configWrite, fsHomeDir, isWindows } from "../shim/bridge.js
 import { joinPath, type GroupKey, type SortKey } from "./logic";
 
 export type View = "details" | "grid";
-export interface Tab { id: string; path: string; view: View; sort: SortKey; asc: boolean; group?: GroupKey }
+/** `usage`: the folder whose disk-usage report is open over the tab (usage/), if one is. */
+export interface Tab { id: string; path: string; view: View; sort: SortKey; asc: boolean; group?: GroupKey; usage?: string }
 export interface Pin { path: string; name: string }
 export interface State {
   tabs: Tab[];

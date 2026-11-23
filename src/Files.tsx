@@ -7,7 +7,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowLeft, ArrowRight, PanelLeft, ArrowUp, ArrowUpDown, ChevronDown, Columns2, FolderOpen, LayoutGrid, List,
-  PanelRight, RefreshCw, Search as SearchIcon, X,
+  PanelRight, PieChart, RefreshCw, Search as SearchIcon, X,
 } from "lucide-react";
 import { fsOpen, fsReveal, fsList, isWindows } from "../shim/bridge.js";
 import {
@@ -29,6 +29,7 @@ import { BIN, ClashDialog, type Asking } from "./ClashDialog";
 import { getState, loadState, newTab, update, updateTab, useFilesState, type Tab } from "./store";
 import { DROP, DragBadge, TABS, setDropHost } from "./drag";
 import { opensInFloat } from "./openin";
+import { UsageView } from "./usage/UsageView";
 
 /** The edge a side pane is dragged by: a few pixels over the pane's border, lit while pointed at. */
 const splitter = "relative z-10 -mx-[3px] w-[6px] shrink-0 cursor-col-resize transition-colors hover:bg-[var(--accent)]";
@@ -141,6 +142,9 @@ function Explorer({ tab }: { tab: Tab }) {
   const back = () => { const h = hist(tab.id); const p = h.back.pop(); if (p) { h.fwd.push(cwd); go(p, false); } };
   const forward = () => { const h = hist(tab.id); const p = h.fwd.pop(); if (p) { h.back.push(cwd); go(p, false); } };
   const up = () => { const p = parentOf(cwd); if (p) go(p); };
+  // Disk usage is measured on this PC only: not on a server or a phone.
+  const canAnalyze = !phone && !isRemote(cwd);
+  const analyze = (path: string) => updateTab(tab.id, { usage: path });
   const newTabAt = (path: string) => { const t = newTab(path); update((st) => ({ tabs: [...st.tabs, t], active: t.id })); };
 
   /** Open a file the way Deck would, or in Windows' app when Deck has nothing for its kind. */
@@ -289,6 +293,7 @@ function Explorer({ tab }: { tab: Tab }) {
       { label: "Open", hint: "Enter", onClick: () => openEntry(e) },
       ...(e.dir ? [
         { label: "Open in a new tab", onClick: () => newTabAt(e.path) },
+        ...(canAnalyze ? [{ label: "Analyze sizes", icon: PieChart, onClick: () => analyze(e.path) } as MenuEntry] : []),
         // A folder already open as a workspace is switched to rather than opened twice.
         ...(phone ? [] : [projectOf(e.path)
           ? { label: "Go to its workspace", onClick: () => switchWorkspace(projectOf(e.path)!.id) }
@@ -312,6 +317,7 @@ function Explorer({ tab }: { tab: Tab }) {
       { label: "Show hidden files", checked: getState().showHidden, onClick: () => update((st) => ({ showHidden: !st.showHidden })) },
       { label: "Refresh", hint: "F5", onClick: () => void relist(cwd) },
       { label: "Copy this folder's path", onClick: () => copyPaths([cwd]) },
+      ...(canAnalyze ? [{ label: "Analyze this folder's sizes", icon: PieChart, onClick: () => analyze(cwd) } as MenuEntry] : []),
       ...(!remote ? [{ label: isWindows() ? "Open in Windows Explorer" : "Open in the file manager", onClick: () => run("Opening it failed", () => fsOpen(cwd)) } as MenuEntry] : []),
     ];
     setMenu({ x: ev.clientX, y: ev.clientY, items: e ? items : () => { const live = getState(); return items.map((i) => (i !== "sep" && i.checked !== undefined ? { ...i, checked: live.showHidden } : i)); } });
@@ -422,6 +428,8 @@ function Explorer({ tab }: { tab: Tab }) {
         onAdd={() => newTabAt(cwd)} addTitle="New tab here" />
       </div>
 
+      {/* Analyze sizes: the report over this tab, until its back arrow (usage/). */}
+      {tab.usage ? <UsageView root={tab.usage} onClose={() => updateTab(tab.id, { usage: undefined })} onOpen={(p) => { updateTab(tab.id, { usage: undefined }); go(p); }} onAnalyze={analyze} /> : <>
       <div className="flex h-12 shrink-0 items-center gap-1.5 border-b border-subtle px-2.5">
         {narrow && <button className={tool} title="Places" aria-label="Show the sidebar" aria-pressed={sideOpen} onClick={() => setSideOpen((v) => !v)}
           style={sideOpen ? { color: "var(--accent)" } : undefined}><PanelLeft size={16} /></button>}
@@ -469,6 +477,7 @@ function Explorer({ tab }: { tab: Tab }) {
           {query && <button aria-label="Clear the search" onClick={() => { setQuery(""); setSearched(""); }} className="text-text-muted hover:text-text-primary"><X size={13} /></button>}
         </label>
 
+        {canAnalyze && <button className={menuButton} onClick={() => analyze(cwd)} title={`How much space ${nameOf(cwd)} takes, and where`}><PieChart size={14} />{!narrow && "Analyze"}</button>}
         <button className={menuButton} aria-haspopup="menu" onClick={sortMenu} title="Sort"><ArrowUpDown size={14} />{!narrow && "Sort"}<ChevronDown size={12} className="text-text-muted" /></button>
         <button className={menuButton} aria-haspopup="menu" onClick={viewMenu}>
           {tab.view === "grid" ? <LayoutGrid size={14} /> : <List size={14} />}{!narrow && "View"}<ChevronDown size={12} className="text-text-muted" />
@@ -528,6 +537,7 @@ function Explorer({ tab }: { tab: Tab }) {
             onCopyPath={copyPaths} onReveal={(p) => run("Showing it failed", () => fsReveal(p))} />
         </>)}
       </div>
+      </>}
 
       {menu && <ContextMenu x={menu.x} y={menu.y} items={typeof menu.items === "function" ? menu.items() : menu.items} onClose={() => setMenu(null)} />}
       <ConfirmDialog state={confirm} onClose={() => setConfirm(null)} />

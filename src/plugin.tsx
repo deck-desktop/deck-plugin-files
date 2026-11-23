@@ -3,6 +3,7 @@ import { Files } from "./Files";
 import { clearListings } from "./folders";
 import { clearThumbs } from "./thumbs";
 import { stopOpenIn } from "./openin";
+import { disposeScans } from "./usage/scan";
 
 export { settings } from "./openin";
 
@@ -29,9 +30,10 @@ export const keybindings = () => [
   { id: "search", title: "Search this folder", defaultChord: "ctrl+f" },
 ];
 
-/** Before a reload re-imports the plugin: the thumbnails' blob URLs are released. */
+/** Before a reload re-imports the plugin: the thumbnails' blob URLs are released and scans stop. */
 export function dispose() {
   stopOpenIn();
   clearThumbs();
   clearListings();
+  disposeScans();
 }

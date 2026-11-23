@@ -1,0 +1,106 @@
+// The Treemap tab: the folder's folders as blocks sized by the space they take, each with its own
+// largest folders inside it. A click zooms into a block, the path above comes back out.
+import { useLayoutEffect, useMemo, useRef, useState } from "react";
+import type { UsageNode } from "../../shim/bridge.js";
+import { sizeLabel } from "../logic";
+import { joinPath, nodeAt, restOf, type Report } from "./report";
+import { squarify, type Rect } from "./treemap";
+import { PART_COLORS } from "./Donut";
+
+interface Block { key: string; path: string; name: string; size: number; rect: Rect; color: string; depth: 0 | 1; node: UsageNode | null }
+
+/** At most this many blocks a level, and none smaller than this many pixels a side. */
+const MAX_TOP = 40, MAX_INNER = 24, MIN_SIDE = 6, HEAD = 34;
+
+function layout(n: UsageNode, path: string, box: Rect): Block[] {
+  const kids = n.children.slice(0, MAX_TOP);
+  const rest = n.size - kids.reduce((s, c) => s + c.size, 0);
+  const items = [...kids.map((c) => ({ node: c as UsageNode | null, name: c.name, size: c.size })), ...(rest > 0 ? [{ node: null, name: "Files and smaller folders", size: rest }] : [])];
+  const rects = squarify(items.map((i) => i.size), box);
+  const out: Block[] = [];
+  items.forEach((it, i) => {
+    const r = rects[i];
+    if (r.w < MIN_SIDE || r.h < MIN_SIDE) return;
+    const p = it.node ? joinPath(path, it.name) : `${path}\0rest`;
+    const color = it.node ? PART_COLORS[i % 7] : PART_COLORS[7];
+    out.push({ key: p, path: p, name: it.name, size: it.size, rect: r, color, depth: 0, node: it.node });
+    // Its own largest folders inside it, under its name, when it has the room.
+    if (it.node && it.node.children.length && r.w > 90 && r.h > HEAD + 30) {
+      const inner = { x: r.x + 4, y: r.y + HEAD, w: r.w - 8, h: r.h - HEAD - 4 };
+      const sub = it.node.children.slice(0, MAX_INNER);
+      const subRest = restOf({ ...it.node, children: sub });
+      const subItems = [...sub.map((c) => ({ c: c as UsageNode | null, size: c.size })), ...(subRest > 0 ? [{ c: null, size: subRest }] : [])];
+      squarify(subItems.map((s) => s.size), inner).forEach((q, k) => {
+        const s = subItems[k];
+        if (!s.c || q.w < MIN_SIDE || q.h < MIN_SIDE) return;
+        const sp = joinPath(p, s.c.name);
+        out.push({ key: sp, path: sp, name: s.c.name, size: s.c.size, rect: q, color, depth: 1, node: s.c });
+      });
+    }
+  });
+  return out;
+}
+
+export function TreemapTab({ report, gone, onMenu }: { report: Report; gone: Set<string>; onMenu: (path: string, x: number, y: number) => void }) {
+  const [zoom, setZoom] = useState<string[]>([]);
+  const [hover, setHover] = useState<Block | null>(null);
+  const box = useRef<HTMLDivElement>(null);
+  const [size, setSize] = useState({ w: 0, h: 0 });
+  useLayoutEffect(() => {
+    const el = box.current;
+    if (!el) return;
+    const fit = () => setSize((s) => (s.w === el.clientWidth && s.h === el.clientHeight ? s : { w: el.clientWidth, h: el.clientHeight }));
+    fit();
+    const ro = new (el.ownerDocument.defaultView ?? window).ResizeObserver(fit);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+
+  const node = nodeAt(report.tree, zoom) ?? report.tree;
+  const path = zoom.reduce((p, n) => joinPath(p, n), report.root);
+  const blocks = useMemo(() => {
+    const visible = { ...node, children: node.children.filter((c) => !gone.has(joinPath(path, c.name))) };
+    return size.w ? layout(visible, path, { x: 0, y: 0, w: size.w, h: size.h }) : [];
+  }, [node, path, size, gone]);
+  const into = (b: Block) => { if (!b.node?.children.length) return; setHover(null); setZoom(b.path.slice(report.root.length).split(/[\\/]/).filter(Boolean)); };
+
+  return (
+    <div className="flex min-h-0 flex-1 flex-col bg-card">
+      <div className="flex h-10 shrink-0 items-center gap-1 px-4 text-[12px] text-text-muted">
+        {[report.tree.name, ...zoom].map((n, i, all) => (
+          <span key={i} className="flex items-center gap-1">
+            {i > 0 && <span>›</span>}
+            <button disabled={i === all.length - 1} onClick={() => setZoom(zoom.slice(0, i))}
+              className={"rounded px-1.5 py-0.5 " + (i === all.length - 1 ? "text-text-primary" : "hover:bg-white/5 hover:text-text-primary")}>{n}</button>
+          </span>
+        ))}
+        <span className="ml-3">{sizeLabel(node.size)} · click a block to zoom in, the path to come back out</span>
+      </div>
+      <div ref={box} className="relative mx-4 mb-4 min-h-0 flex-1" onMouseLeave={() => setHover(null)}>
+        {blocks.map((b) => (
+          <div key={b.key} onClick={(e) => { e.stopPropagation(); into(b); }}
+            onContextMenu={(e) => { if (!b.node) return; e.preventDefault(); e.stopPropagation(); onMenu(b.path, e.clientX, e.clientY); }}
+            onMouseEnter={() => setHover(b)}
+            className={"absolute box-border flex flex-col gap-0.5 overflow-hidden rounded px-2 py-1.5 " + (b.node?.children.length ? "cursor-zoom-in" : "")}
+            style={{
+              left: b.rect.x, top: b.rect.y, width: b.rect.w, height: b.rect.h,
+              background: `color-mix(in srgb, ${b.color} ${b.depth ? 26 : b.node ? 10 : 6}%, transparent)`,
+              border: `1px solid color-mix(in srgb, ${b.color} ${b.depth ? 55 : 40}%, transparent)`,
+              outline: hover?.key === b.key ? "1px solid var(--text-primary)" : undefined,
+            }}>
+            {b.rect.w > 46 && b.rect.h > 22 && <span className={"truncate text-[12px] " + (b.depth ? "text-text-primary" : "font-semibold text-text-primary")}>{b.name}</span>}
+            {b.rect.w > 46 && b.rect.h > 38 && <span className="truncate text-[11px] text-text-secondary">{sizeLabel(b.size)}</span>}
+          </div>
+        ))}
+        {hover && (
+          <div className="pointer-events-none absolute z-10 flex max-w-[320px] flex-col gap-1 rounded-[10px] border border-subtle bg-card p-3 text-[12px] shadow-2xl"
+            style={{ left: Math.min(hover.rect.x + 12, Math.max(0, size.w - 330)), top: Math.min(hover.rect.y + 12, Math.max(0, size.h - 110)) }}>
+            <span className="break-all font-mono text-[11px] text-text-muted">{hover.node ? hover.path : `${path} (files and smaller folders)`}</span>
+            <span className="text-[15px] font-semibold text-text-primary">{sizeLabel(hover.size)}</span>
+            <span className="text-text-secondary">{((hover.size / (node.size || 1)) * 100).toFixed(1)}% of {node.name}{hover.node ? ` · ${hover.node.files.toLocaleString()} files` : ""}</span>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
