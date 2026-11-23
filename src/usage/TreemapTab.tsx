@@ -100,15 +100,7 @@ export function TreemapTab({ report, gone, onMenu }: { report: Report; gone: Set
               className={"rounded px-1.5 py-0.5 " + (i === all.length - 1 ? "text-text-primary" : "hover:bg-white/5 hover:text-text-primary")}>{n}</button>
           </span>
         ))}
-        {/* The block under the pointer is described here, beside the path, rather than in a card over the
-            map, where it covered the blocks next to it. */}
-        {hover
-          ? <span className="ml-3 flex min-w-0 items-baseline gap-2">
-              <span className="truncate font-mono text-[11.5px] text-text-secondary" title={hover.path}>{hover.node ? hover.path.slice(path.length).replace(/^[\\/]/, "") : "Files and smaller folders"}</span>
-              <span className="shrink-0 font-semibold text-text-primary">{sizeLabel(hover.size)}</span>
-              <span className="shrink-0">{((hover.size / (node.size || 1)) * 100).toFixed(1)}% of {node.name}{hover.node ? ` · ${hover.node.files.toLocaleString()} files` : ""}</span>
-            </span>
-          : <span className="ml-3">{sizeLabel(node.size)} · click a block to zoom in, the path to come back out</span>}
+        <span className="ml-3">{sizeLabel(node.size)} · click a block to zoom in, the path to come back out</span>
       </div>
       <div ref={box} className="relative mx-4 mb-4 min-h-0 flex-1" onMouseLeave={() => setHover(null)}
         onMouseMove={(e) => { const r = e.currentTarget.getBoundingClientRect(); at.current = { x: e.clientX - r.left, y: e.clientY - r.top }; place(); }}>
@@ -133,7 +125,7 @@ export function TreemapTab({ report, gone, onMenu }: { report: Report; gone: Set
             <span className="flex items-baseline gap-2">
               <span className="min-w-0 truncate text-text-primary">{hover.node ? hover.name : "Files and smaller folders"}</span>
               <span className="font-semibold text-text-primary">{sizeLabel(hover.size)}</span>
-              <span className="text-text-muted">{((hover.size / (node.size || 1)) * 100).toFixed(1)}%</span>
+              <span className="text-text-muted">{((hover.size / (node.size || 1)) * 100).toFixed(1)}%{hover.node ? ` · ${hover.node.files.toLocaleString()} files` : ""}</span>
             </span>
           </div>
         )}
