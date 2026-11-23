@@ -1,7 +1,8 @@
 // The Tree tab: the folders, largest first, each with its share of the folder it is in; beside it the
 // selected folder: its numbers, a ring of what it holds, and what can be done with it.
 import { useMemo, useState } from "react";
-import { ChevronRight, Folder, Files as FilesIcon } from "lucide-react";
+import { ChevronRight, Files as FilesIcon } from "lucide-react";
+import { FileIcon, themeById, useEditorSettings } from "../../shim/ui.js";
 import type { UsageNode } from "../../shim/bridge.js";
 import { fsReveal } from "../../shim/bridge.js";
 import { sizeLabel } from "../logic";
@@ -25,6 +26,8 @@ export function TreeTab({ report, free, gone, onOpen, onTrash, onMenu }: {
   const [open, setOpen] = useState<Set<string>>(() => new Set([root]));
   const [picked, setPicked] = useState(root);
   const now = Date.now();
+  // The icon theme the file list uses (Settings › Editor), so a folder looks the same in both.
+  const theme = themeById(useEditorSettings().iconTheme);
 
   // The rows on screen: each open folder's children, then what they leave over as one row.
   const { rows, byPath } = useMemo(() => {
@@ -75,7 +78,7 @@ export function TreeTab({ report, free, gone, onOpen, onTrash, onMenu }: {
                         <ChevronRight size={12} style={{ transform: isOpen ? "rotate(90deg)" : undefined }} />
                       </button>
                     : <span className="size-4 shrink-0" />}
-                  {r.node ? <Folder size={14} className="shrink-0" style={{ color: "#e2b85c" }} /> : <FilesIcon size={14} className="shrink-0 text-text-muted" />}
+                  {r.node ? <FileIcon icon={theme.folder(r.node.name, isOpen)} size={15} /> : <FilesIcon size={14} className="shrink-0 text-text-muted" />}
                   <span className={"truncate " + (r.node ? "text-text-primary" : "italic text-text-muted")}>{r.node ? r.node.name : "Files and smaller folders"}</span>
                 </span>
                 <span className="text-right tabular-nums text-text-secondary">{sizeLabel(r.size)}</span>

@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { fsReveal, isWindows } from "../../shim/bridge.js";
 import type { UsageFile } from "../../shim/bridge.js";
-import { ConfirmDialog, type ConfirmState } from "../../shim/ui.js";
+import { ConfirmDialog, FileIcon, themeById, useEditorSettings, type ConfirmState } from "../../shim/ui.js";
 import { sizeLabel, parentOf, baseName } from "../logic";
 import { remove } from "../ops";
 import { notice, failure } from "../notice";
@@ -43,6 +43,7 @@ export function FileList({ files, gone, onGone, empty }: {
   );
   const chosen = shown.filter((f) => ticked.has(f.path));
   const now = Date.now();
+  const theme = themeById(useEditorSettings().iconTheme);
   const toggle = (p: string) => setTicked((t) => { const n = new Set(t); if (n.has(p)) n.delete(p); else n.add(p); return n; });
   const bin = isWindows() ? "the Recycle Bin" : "the Trash";
   const trash = () => setConfirm({
@@ -66,7 +67,7 @@ export function FileList({ files, gone, onGone, empty }: {
           <label key={f.path} onDoubleClick={() => void fsReveal(f.path).catch((e: unknown) => console.warn("[files] reveal failed", e))}
             className={"grid h-8 cursor-pointer grid-cols-[28px_minmax(0,1.1fr)_minmax(0,1.4fr)_100px_90px_120px] items-center gap-3 px-4 text-[12.5px] hover:bg-white/5 " + (ticked.has(f.path) ? "bg-[var(--accent-soft)]" : "")}>
             <input type="checkbox" checked={ticked.has(f.path)} onChange={() => toggle(f.path)} aria-label={`Select ${baseName(f.path)}`} style={{ accentColor: "var(--accent)" }} />
-            <span className="truncate text-text-primary" title={f.path}>{baseName(f.path)}</span>
+            <span className="flex min-w-0 items-center gap-2" title={f.path}><FileIcon icon={theme.file(baseName(f.path))} size={15} /><span className="truncate text-text-primary">{baseName(f.path)}</span></span>
             <span className="truncate font-mono text-[11px] text-text-muted" title={parentOf(f.path) ?? ""}>{parentOf(f.path)}</span>
             <span className="truncate text-text-muted">{kindOf(extOf(f.path)).name}</span>
             <span className="text-right tabular-nums text-text-secondary">{sizeLabel(f.size)}</span>
