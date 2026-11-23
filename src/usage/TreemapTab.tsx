@@ -1,6 +1,6 @@
 // The Treemap tab: the folder's folders as blocks sized by the space they take, each with its own
 // largest folders inside it. A click zooms into a block, the path above comes back out.
-import { useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { UsageNode } from "../../shim/bridge.js";
 import { sizeLabel } from "../logic";
 import { joinPath, nodeAt, restOf, type Report } from "./report";
@@ -50,6 +50,27 @@ export function TreemapTab({ report, gone, onMenu }: { report: Report; gone: Set
   const [zoom, setZoom] = useState<string[]>([]);
   const [hover, setHover] = useState<Block | null>(null);
   const box = useRef<HTMLDivElement>(null);
+  // A small label by the pointer, once it has rested on a block a moment: never in the way while you
+  // move across the map, and moved with the pointer through its ref rather than a render per move.
+  const tip = useRef<HTMLDivElement>(null);
+  const at = useRef({ x: 0, y: 0 });
+  const [rested, setRested] = useState(false);
+  useEffect(() => {
+    setRested(false);
+    if (!hover) return;
+    const t = setTimeout(() => setRested(true), 450);
+    return () => clearTimeout(t);
+  }, [hover]);
+  const place = () => {
+    const el = tip.current, b = box.current;
+    if (!el || !b) return;
+    const w = el.offsetWidth, h = el.offsetHeight;
+    // Below and right of the pointer, or flipped to the other side near an edge.
+    const x = at.current.x + 14 + w > b.clientWidth ? at.current.x - 14 - w : at.current.x + 14;
+    const y = at.current.y + 18 + h > b.clientHeight ? at.current.y - 10 - h : at.current.y + 18;
+    el.style.transform = `translate(${Math.max(0, x)}px, ${Math.max(0, y)}px)`;
+  };
+  useLayoutEffect(place, [rested, hover]); // eslint-disable-line react-hooks/exhaustive-deps
   const [size, setSize] = useState({ w: 0, h: 0 });
   useLayoutEffect(() => {
     const el = box.current;
@@ -89,7 +110,8 @@ export function TreemapTab({ report, gone, onMenu }: { report: Report; gone: Set
             </span>
           : <span className="ml-3">{sizeLabel(node.size)} · click a block to zoom in, the path to come back out</span>}
       </div>
-      <div ref={box} className="relative mx-4 mb-4 min-h-0 flex-1" onMouseLeave={() => setHover(null)}>
+      <div ref={box} className="relative mx-4 mb-4 min-h-0 flex-1" onMouseLeave={() => setHover(null)}
+        onMouseMove={(e) => { const r = e.currentTarget.getBoundingClientRect(); at.current = { x: e.clientX - r.left, y: e.clientY - r.top }; place(); }}>
         {blocks.map((b) => (
           <div key={b.key} onClick={(e) => { e.stopPropagation(); into(b); }}
             onContextMenu={(e) => { if (!b.node) return; e.preventDefault(); e.stopPropagation(); onMenu(b.path, e.clientX, e.clientY); }}
@@ -105,6 +127,13 @@ export function TreemapTab({ report, gone, onMenu }: { report: Report; gone: Set
             {b.rect.w > 46 && b.rect.h > 38 && <span className="truncate text-[11px] leading-[14px] text-text-secondary">{sizeLabel(b.size)}</span>}
           </div>
         ))}
+        {hover && rested && (
+          <div ref={tip} className="pointer-events-none absolute left-0 top-0 z-10 flex items-baseline gap-2 whitespace-nowrap rounded-md border border-subtle bg-elev/95 px-2 py-1 text-[11.5px] shadow-lg">
+            <span className="max-w-[220px] truncate text-text-primary">{hover.node ? hover.name : "Files and smaller folders"}</span>
+            <span className="font-semibold text-text-primary">{sizeLabel(hover.size)}</span>
+            <span className="text-text-muted">{((hover.size / (node.size || 1)) * 100).toFixed(1)}%</span>
+          </div>
+        )}
       </div>
     </div>
   );
