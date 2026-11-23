@@ -86,7 +86,7 @@ export function TreemapTab({ report, gone, onMenu }: { report: Report; gone: Set
           <div key={b.key} onClick={(e) => { e.stopPropagation(); into(b); }}
             onContextMenu={(e) => { if (!b.node) return; e.preventDefault(); e.stopPropagation(); onMenu(b.path, e.clientX, e.clientY); }}
             onMouseEnter={() => setHover(b)}
-            className={"absolute box-border flex flex-col gap-0.5 overflow-hidden px-2 py-1.5 " + (b.node?.children.length ? "cursor-zoom-in" : "")}
+            className={"absolute box-border flex flex-col gap-0.5 overflow-hidden " + (b.rect.w > 46 && b.rect.h > 22 ? "px-2 py-1.5 " : "") + (b.node?.children.length ? "cursor-zoom-in" : "")}
             style={{
               left: b.rect.x + GAP, top: b.rect.y + GAP, width: Math.max(0, b.rect.w - 2 * GAP), height: Math.max(0, b.rect.h - 2 * GAP),
               background: `color-mix(in srgb, ${b.color} ${b.depth ? 26 : b.node ? 10 : 6}%, transparent)`,
