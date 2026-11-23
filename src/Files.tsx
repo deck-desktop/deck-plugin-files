@@ -6,13 +6,10 @@
 // browser, code in the Editor), and anything Deck has nothing for opens in Windows' own app.
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
-  ArrowLeft, ArrowRight, PanelLeft, ArrowUp, ArrowUpDown, Check, ChevronDown, Columns2, FolderOpen, LayoutGrid, List,
+  ArrowLeft, ArrowRight, PanelLeft, ArrowUp, ArrowUpDown, ChevronDown, Columns2, FolderOpen, LayoutGrid, List,
   PanelRight, RefreshCw, Search as SearchIcon, X,
 } from "lucide-react";
 import { fsOpen, fsReveal, fsList, isWindows } from "../shim/bridge.js";
-
-/** Where a deleted file goes on this PC: the Recycle Bin on Windows, the Trash elsewhere. */
-const BIN = () => (isWindows() ? "the Recycle Bin" : "the Trash");
 import {
   ConfirmDialog, ContextMenu, NamePrompt, TabStrip, onKeys, openIn, openerFor, openersFor, useResize, useScope,
   type ConfirmState, type MenuEntry, type NamePromptState,
@@ -20,14 +17,15 @@ import {
 import { notice, failure } from "./notice";
 import { applyDtCommand, openInEditor, switchWorkspace } from "../shim/terminals.js";
 import { projectOf } from "./project";
-import { baseName, crumbs, groupEntries, isAdb, isDevice, isRemote, parentOf, previewKind, sizeLabel, sortEntries, typeAhead, type Clash, type Entry, type SortKey } from "./logic";
+import { baseName, crumbs, groupEntries, isAdb, isDevice, isRemote, parentOf, previewKind, sizeLabel, sortEntries, typeAhead, type Entry, type SortKey } from "./logic";
 import { nameOf, phoneCrumbs, relist, useListing } from "./folders";
-import { cancelJob, clipboard, create, fromPhone, paste, remove, rename, setClipboard, useClipboard, useJob, type Ask, type Choice } from "./ops";
+import { cancelJob, clipboard, create, fromPhone, paste, remove, rename, setClipboard, useClipboard, useJob, type Ask } from "./ops";
 import { Details, Grid } from "./Listing";
 import { Preview } from "./Preview";
 import { Search } from "./Search";
 import { Sidebar } from "./Sidebar";
 import { useWidth } from "./useWidth";
+import { BIN, ClashDialog, type Asking } from "./ClashDialog";
 import { getState, loadState, newTab, update, updateTab, useFilesState, type Tab } from "./store";
 import { DROP, DragBadge, TABS, setDropHost } from "./drag";
 import { opensInFloat } from "./openin";
@@ -41,9 +39,6 @@ const tool = "grid size-8 shrink-0 place-items-center rounded-lg text-text-muted
 /** Each tab's back and forward stacks, for as long as the plugin is loaded. */
 const history = new Map<string, { back: string[]; fwd: string[] }>();
 const hist = (id: string) => { let h = history.get(id); if (!h) { h = { back: [], fwd: [] }; history.set(id, h); } return h; };
-
-/** A name clash being asked about, and how the answer is handed back. */
-interface Asking { clash: Clash; rest: number; resolve: (a: { choice: Choice; forRest: boolean }) => void }
 
 export function Files() {
   const s = useFilesState();
@@ -538,40 +533,6 @@ function Explorer({ tab }: { tab: Tab }) {
       <ConfirmDialog state={confirm} onClose={() => setConfirm(null)} />
       <NamePrompt state={prompt} onClose={() => setPrompt(null)} />
       {asking && <ClashDialog a={asking} onDone={(ans) => { asking.resolve(ans); setAsking(null); }} />}
-    </div>
-  );
-}
-
-/** A name already in the folder: what to do with it, and maybe with the rest. */
-function ClashDialog({ a, onDone }: { a: Asking; onDone: (ans: { choice: Choice; forRest: boolean }) => void }) {
-  const [forRest, setForRest] = useState(false);
-  const btn = "h-8 rounded-lg border border-subtle bg-elev px-3 text-[12.5px] text-text-secondary transition-colors hover:border-strong hover:text-text-primary";
-  const pick = (choice: Choice) => onDone({ choice, forRest });
-  return (
-    <div className="fixed inset-0 z-[300] flex items-center justify-center bg-black/50" onKeyDown={(e) => { if (e.key === "Escape") pick("skip"); }}>
-      <div role="dialog" aria-label="A file with this name is already here" className="flex w-[460px] flex-col gap-4 rounded-2xl border border-subtle bg-card p-5 shadow-2xl">
-        <div className="flex flex-col gap-1">
-          <span className="text-[15px] font-semibold text-text-primary">{a.clash.name} is already there</span>
-          <span className="text-[12.5px] text-text-secondary">
-            {a.clash.folder ? "A folder cannot be replaced by a copy, only kept beside it with a new name, or skipped." : `Replace it (the old one goes to ${BIN()}), keep both, or skip this one.`}
-          </span>
-        </div>
-        {a.rest > 0 && (
-          <label className="flex items-center gap-2 text-[12.5px] text-text-secondary">
-            <input type="checkbox" checked={forRest} onChange={(e) => setForRest(e.target.checked)} style={{ accentColor: "var(--accent)" }} />
-            Do the same for the other {a.rest}
-          </label>
-        )}
-        <div className="flex justify-end gap-2">
-          <button className={btn} onClick={() => pick("skip")}>Skip</button>
-          <button className={btn} onClick={() => pick("both")}>Keep both</button>
-          {!a.clash.folder && (
-            <button autoFocus onClick={() => pick("replace")} className="flex h-8 items-center gap-1.5 rounded-lg px-3 text-[12.5px] font-medium text-white transition hover:brightness-110" style={{ background: "var(--accent)" }}>
-              <Check size={13} />Replace
-            </button>
-          )}
-        </div>
-      </div>
     </div>
   );
 }
