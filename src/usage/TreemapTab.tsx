@@ -17,6 +17,15 @@ const snap = (r: Rect): Rect => { const x = Math.round(r.x), y = Math.round(r.y)
 /** The space a block keeps around what it holds, and between it and its neighbours (GAP each side). */
 const PAD = 3, GAP = 1;
 
+/**
+ * What a block has room to show: its name only when the whole name fits (a cut name, "cha…", says
+ * nothing), and its size under it, or alone where the name does not fit.
+ */
+function labelsOf(b: Block): { name: boolean; size: boolean } {
+  const name = b.rect.w > 46 && b.rect.h > 22 && b.name.length * 6.8 + 18 <= b.rect.w;
+  return { name, size: b.rect.w > 44 && b.rect.h > (name ? 38 : 22) };
+}
+
 function layout(n: UsageNode, path: string, box: Rect): Block[] {
   const kids = n.children.slice(0, MAX_TOP);
   const rest = n.size - kids.reduce((s, c) => s + c.size, 0);
@@ -108,15 +117,15 @@ export function TreemapTab({ report, gone, onMenu }: { report: Report; gone: Set
           <div key={b.key} onClick={(e) => { e.stopPropagation(); into(b); }}
             onContextMenu={(e) => { if (!b.node) return; e.preventDefault(); e.stopPropagation(); onMenu(b.path, e.clientX, e.clientY); }}
             onMouseEnter={() => setHover(b)}
-            className={"absolute box-border flex flex-col overflow-hidden " + (b.rect.w > 46 && b.rect.h > 22 ? "px-2 py-1.5 " : "") + (b.node?.children.length ? "cursor-zoom-in" : "")}
+            className={"absolute box-border flex flex-col overflow-hidden " + (labelsOf(b).name || labelsOf(b).size ? "px-2 py-1.5 " : "") + (b.node?.children.length ? "cursor-zoom-in" : "")}
             style={{
               left: b.rect.x + GAP, top: b.rect.y + GAP, width: Math.max(0, b.rect.w - 2 * GAP), height: Math.max(0, b.rect.h - 2 * GAP),
               background: `color-mix(in srgb, ${b.color} ${b.depth ? 26 : b.node ? 10 : 6}%, transparent)`,
               border: `1px solid color-mix(in srgb, ${b.color} ${b.depth ? 55 : 40}%, transparent)`,
               outline: hover?.key === b.key ? "1px solid var(--text-primary)" : undefined,
             }}>
-            {b.rect.w > 46 && b.rect.h > 22 && <span className={"truncate text-[12px] leading-4 " + (b.depth ? "text-text-primary" : "font-semibold text-text-primary")}>{b.name}</span>}
-            {b.rect.w > 46 && b.rect.h > 38 && <span className="truncate text-[11px] leading-[14px] text-text-secondary">{sizeLabel(b.size)}</span>}
+            {labelsOf(b).name && <span className={"truncate text-[12px] leading-4 " + (b.depth ? "text-text-primary" : "font-semibold text-text-primary")}>{b.name}</span>}
+            {labelsOf(b).size && <span className="truncate text-[11px] leading-[14px] text-text-secondary">{sizeLabel(b.size)}</span>}
           </div>
         ))}
         {hover && rested && (
