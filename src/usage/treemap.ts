@@ -37,5 +37,9 @@ export function squarify(sizes: number[], box: Rect): Rect[] {
     }
     i = j;
   }
-  return out;
+  // Rounding left over as the space runs out can push the last, tiny rows past the box: kept inside it.
+  return out.map((r) => {
+    const x = Math.min(Math.max(r.x, box.x), box.x + box.w), y = Math.min(Math.max(r.y, box.y), box.y + box.h);
+    return { x, y, w: Math.max(0, Math.min(r.x + r.w, box.x + box.w) - x), h: Math.max(0, Math.min(r.y + r.h, box.y + box.h) - y) };
+  });
 }

@@ -79,6 +79,9 @@ for (let i = 0; i < rects.length; i++) for (let j = i + 1; j < rects.length; j++
   assert.ok(overlap < 1e-6, "no overlap");
 }
 assert.deepEqual(T.squarify([], box), []);
+// A long tail of tiny sizes stays inside the box.
+const tail = T.squarify([1e9, ...Array.from({ length: 60 }, (_, i) => 1000 - i * 10)], { x: 10, y: 20, w: 300, h: 200 });
+assert.ok(tail.every((q) => q.x >= 10 && q.y >= 20 && q.x + q.w <= 310 + 1e-9 && q.y + q.h <= 220 + 1e-9 && q.w >= 0 && q.h >= 0), "nothing past the box");
 
 // Duplicates: same size first, then same content; the newest copy first in each set.
 const f = (path, size, mtime = 0) => ({ path, size, mtime });
