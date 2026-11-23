@@ -12,16 +12,18 @@ export function AgeTab({ report, gone, onGone }: { report: Report; gone: Set<str
   const files: UsageFile[] = useMemo(() => report.big.filter((f) => ageBucket(f.mtime, now) === bucket), [report.big, bucket]); // eslint-disable-line react-hooks/exhaustive-deps
   return (
     <div className="flex min-h-0 flex-1 flex-col bg-card">
-      <span className="px-4 pt-4 text-[12.5px] text-text-muted">Space by when a file last changed</span>
-      <div className="grid shrink-0 grid-cols-6 gap-4 border-b border-subtle px-8 pb-4 pt-2">
+      {/* One compact card a bucket, its bar along its foot: the list under them keeps the height, which
+          a chart of tall columns took on a small window. */}
+      <div className="grid shrink-0 grid-cols-[repeat(auto-fit,minmax(130px,1fr))] gap-2 border-b border-subtle p-3" role="tablist" aria-label="Space by when a file last changed">
         {report.ages.map(([size, count], i) => (
-          <button key={i} onClick={() => setBucket(i)} className="flex flex-col items-stretch gap-1.5 text-center">
-            <span className="flex h-[180px] flex-col justify-end gap-1.5">
-              <span className="text-[13px] font-semibold text-text-primary">{sizeLabel(size)}</span>
-              <span className="rounded-t" style={{ height: `${Math.max(2, (size / max) * 140)}px`, background: "var(--accent)", opacity: i === bucket ? 1 : 0.35 }} />
-            </span>
+          <button key={i} role="tab" aria-selected={i === bucket} onClick={() => setBucket(i)}
+            className={"flex flex-col gap-1 rounded-lg border px-3 py-2 text-left transition-colors " + (i === bucket ? "border-[var(--accent)] bg-[var(--accent-soft)]" : "border-subtle bg-elev hover:border-strong")}>
             <span className={"text-[12px] " + (i === bucket ? "font-semibold text-text-primary" : "text-text-secondary")}>{AGE_LABELS[i]}</span>
-            <span className="text-[11.5px] text-text-muted">{count.toLocaleString()} files</span>
+            <span className="flex items-baseline justify-between gap-2">
+              <span className="text-[13px] font-semibold text-text-primary">{sizeLabel(size)}</span>
+              <span className="text-[11px] text-text-muted">{count.toLocaleString()} files</span>
+            </span>
+            <span className="h-1 overflow-hidden rounded-full bg-white/5"><span className="block h-full rounded-full" style={{ width: `${Math.max(1, (size / max) * 100)}%`, background: "var(--accent)" }} /></span>
           </button>
         ))}
       </div>
