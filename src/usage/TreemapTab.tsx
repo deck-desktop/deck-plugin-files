@@ -79,7 +79,15 @@ export function TreemapTab({ report, gone, onMenu }: { report: Report; gone: Set
               className={"rounded px-1.5 py-0.5 " + (i === all.length - 1 ? "text-text-primary" : "hover:bg-white/5 hover:text-text-primary")}>{n}</button>
           </span>
         ))}
-        <span className="ml-3">{sizeLabel(node.size)} · click a block to zoom in, the path to come back out</span>
+        {/* The block under the pointer is described here, beside the path, rather than in a card over the
+            map, where it covered the blocks next to it. */}
+        {hover
+          ? <span className="ml-3 flex min-w-0 items-baseline gap-2">
+              <span className="truncate font-mono text-[11.5px] text-text-secondary" title={hover.path}>{hover.node ? hover.path.slice(path.length).replace(/^[\\/]/, "") : "Files and smaller folders"}</span>
+              <span className="shrink-0 font-semibold text-text-primary">{sizeLabel(hover.size)}</span>
+              <span className="shrink-0">{((hover.size / (node.size || 1)) * 100).toFixed(1)}% of {node.name}{hover.node ? ` · ${hover.node.files.toLocaleString()} files` : ""}</span>
+            </span>
+          : <span className="ml-3">{sizeLabel(node.size)} · click a block to zoom in, the path to come back out</span>}
       </div>
       <div ref={box} className="relative mx-4 mb-4 min-h-0 flex-1" onMouseLeave={() => setHover(null)}>
         {blocks.map((b) => (
@@ -97,14 +105,6 @@ export function TreemapTab({ report, gone, onMenu }: { report: Report; gone: Set
             {b.rect.w > 46 && b.rect.h > 38 && <span className="truncate text-[11px] leading-[14px] text-text-secondary">{sizeLabel(b.size)}</span>}
           </div>
         ))}
-        {hover && (
-          <div className="pointer-events-none absolute z-10 flex max-w-[320px] flex-col gap-1 rounded-[10px] border border-subtle bg-card p-3 text-[12px] shadow-2xl"
-            style={{ left: Math.min(hover.rect.x + 12, Math.max(0, size.w - 330)), top: Math.min(hover.rect.y + 12, Math.max(0, size.h - 110)) }}>
-            <span className="break-all font-mono text-[11px] text-text-muted">{hover.node ? hover.path : `${path} (files and smaller folders)`}</span>
-            <span className="text-[15px] font-semibold text-text-primary">{sizeLabel(hover.size)}</span>
-            <span className="text-text-secondary">{((hover.size / (node.size || 1)) * 100).toFixed(1)}% of {node.name}{hover.node ? ` · ${hover.node.files.toLocaleString()} files` : ""}</span>
-          </div>
-        )}
       </div>
     </div>
   );
