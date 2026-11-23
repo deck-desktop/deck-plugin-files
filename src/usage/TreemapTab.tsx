@@ -10,7 +10,7 @@ import { PART_COLORS } from "./Donut";
 interface Block { key: string; path: string; name: string; size: number; rect: Rect; color: string; depth: 0 | 1; node: UsageNode | null }
 
 /** At most this many blocks a level, and none smaller than this many pixels a side. */
-const MAX_TOP = 40, MAX_INNER = 24, MIN_SIDE = 6, HEAD = 34;
+const MAX_TOP = 40, MAX_INNER = 24, MIN_SIDE = 6, HEAD = 42;
 
 function layout(n: UsageNode, path: string, box: Rect): Block[] {
   const kids = n.children.slice(0, MAX_TOP);

@@ -75,7 +75,7 @@ export function TreeTab({ report, free, gone, onOpen, onTrash, onMenu }: {
                         <ChevronRight size={12} style={{ transform: isOpen ? "rotate(90deg)" : undefined }} />
                       </button>
                     : <span className="size-4 shrink-0" />}
-                  {r.node ? <Folder size={14} className="shrink-0 text-[#e2b85c]" /> : <FilesIcon size={14} className="shrink-0 text-text-muted" />}
+                  {r.node ? <Folder size={14} className="shrink-0" style={{ color: "#e2b85c" }} /> : <FilesIcon size={14} className="shrink-0 text-text-muted" />}
                   <span className={"truncate " + (r.node ? "text-text-primary" : "italic text-text-muted")}>{r.node ? r.node.name : "Files and smaller folders"}</span>
                 </span>
                 <span className="text-right tabular-nums text-text-secondary">{sizeLabel(r.size)}</span>
