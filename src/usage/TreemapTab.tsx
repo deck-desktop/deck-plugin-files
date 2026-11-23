@@ -12,11 +12,16 @@ interface Block { key: string; path: string; name: string; size: number; rect: R
 /** At most this many blocks a level, and none smaller than this many pixels a side. */
 const MAX_TOP = 40, MAX_INNER = 24, MIN_SIDE = 6, HEAD = 42;
 
+/** A rectangle on whole pixels, its edges rounded rather than its size, so neighbours meet exactly. */
+const snap = (r: Rect): Rect => { const x = Math.round(r.x), y = Math.round(r.y); return { x, y, w: Math.round(r.x + r.w) - x, h: Math.round(r.y + r.h) - y }; };
+/** The space a block keeps around what it holds, and between it and its neighbours (GAP each side). */
+const PAD = 3, GAP = 1;
+
 function layout(n: UsageNode, path: string, box: Rect): Block[] {
   const kids = n.children.slice(0, MAX_TOP);
   const rest = n.size - kids.reduce((s, c) => s + c.size, 0);
   const items = [...kids.map((c) => ({ node: c as UsageNode | null, name: c.name, size: c.size })), ...(rest > 0 ? [{ node: null, name: "Files and smaller folders", size: rest }] : [])];
-  const rects = squarify(items.map((i) => i.size), box);
+  const rects = squarify(items.map((i) => i.size), box).map(snap);
   const out: Block[] = [];
   items.forEach((it, i) => {
     const r = rects[i];
@@ -26,11 +31,11 @@ function layout(n: UsageNode, path: string, box: Rect): Block[] {
     out.push({ key: p, path: p, name: it.name, size: it.size, rect: r, color, depth: 0, node: it.node });
     // Its own largest folders inside it, under its name, when it has the room.
     if (it.node && it.node.children.length && r.w > 90 && r.h > HEAD + 30) {
-      const inner = { x: r.x + 4, y: r.y + HEAD, w: r.w - 8, h: r.h - HEAD - 4 };
+      const inner = { x: r.x + PAD, y: r.y + HEAD, w: r.w - 2 * PAD, h: r.h - HEAD - PAD };
       const sub = it.node.children.slice(0, MAX_INNER);
       const subRest = restOf({ ...it.node, children: sub });
       const subItems = [...sub.map((c) => ({ c: c as UsageNode | null, size: c.size })), ...(subRest > 0 ? [{ c: null, size: subRest }] : [])];
-      squarify(subItems.map((s) => s.size), inner).forEach((q, k) => {
+      squarify(subItems.map((s) => s.size), inner).map(snap).forEach((q, k) => {
         const s = subItems[k];
         if (!s.c || q.w < MIN_SIDE || q.h < MIN_SIDE) return;
         const sp = joinPath(p, s.c.name);
@@ -81,9 +86,9 @@ export function TreemapTab({ report, gone, onMenu }: { report: Report; gone: Set
           <div key={b.key} onClick={(e) => { e.stopPropagation(); into(b); }}
             onContextMenu={(e) => { if (!b.node) return; e.preventDefault(); e.stopPropagation(); onMenu(b.path, e.clientX, e.clientY); }}
             onMouseEnter={() => setHover(b)}
-            className={"absolute box-border flex flex-col gap-0.5 overflow-hidden rounded px-2 py-1.5 " + (b.node?.children.length ? "cursor-zoom-in" : "")}
+            className={"absolute box-border flex flex-col gap-0.5 overflow-hidden px-2 py-1.5 " + (b.node?.children.length ? "cursor-zoom-in" : "")}
             style={{
-              left: b.rect.x, top: b.rect.y, width: b.rect.w, height: b.rect.h,
+              left: b.rect.x + GAP, top: b.rect.y + GAP, width: Math.max(0, b.rect.w - 2 * GAP), height: Math.max(0, b.rect.h - 2 * GAP),
               background: `color-mix(in srgb, ${b.color} ${b.depth ? 26 : b.node ? 10 : 6}%, transparent)`,
               border: `1px solid color-mix(in srgb, ${b.color} ${b.depth ? 55 : 40}%, transparent)`,
               outline: hover?.key === b.key ? "1px solid var(--text-primary)" : undefined,
