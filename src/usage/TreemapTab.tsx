@@ -1,13 +1,18 @@
 // The Treemap tab: the folder's folders as blocks sized by the space they take, each with its own
 // largest folders inside it. A click zooms into a block, the path above comes back out.
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import type { UsageNode } from "../../shim/bridge.js";
-import { sizeLabel } from "../logic";
-import { joinPath, nodeAt, restOf, type Report } from "./report";
+import type { UsageFile, UsageNode } from "../../shim/bridge.js";
+import { baseName, sizeLabel } from "../logic";
+import { joinPath, nodeAt, type Report } from "./report";
 import { squarify, type Rect } from "./treemap";
 import { PART_COLORS } from "./Donut";
 
-interface Block { key: string; path: string; name: string; size: number; rect: Rect; color: string; depth: 0 | 1; node: UsageNode | null }
+/** `file`: one of the report's large files, drawn where it lies; `node` and `file` both unset: what a
+ *  folder holds beyond its listed folders and large files. */
+interface Block { key: string; path: string; name: string; size: number; rect: Rect; color: string; depth: 0 | 1; node: UsageNode | null; file?: boolean }
+type FilesIn = (dir: string) => UsageFile[];
+/** A file block's colour: grey, so the folders' colours stay theirs. */
+const FILE_COLOR = "#94a3b8";
 
 /** At most this many blocks a level, and none smaller than this many pixels a side. */
 const MAX_TOP = 40, MAX_INNER = 24, MIN_SIDE = 6, HEAD = 46;
@@ -39,29 +44,36 @@ function labelsOf(b: Block): { name: boolean; size: string | null; tiny: boolean
   return { name: false, size: null, tiny: false, px: 0, py: 0 };
 }
 
-function layout(n: UsageNode, path: string, box: Rect): Block[] {
-  const kids = n.children.slice(0, MAX_TOP);
-  const rest = n.size - kids.reduce((s, c) => s + c.size, 0);
-  const items = [...kids.map((c) => ({ node: c as UsageNode | null, name: c.name, size: c.size })), ...(rest > 0 ? [{ node: null, name: "Files and smaller folders", size: rest }] : [])];
+/** A folder's listed folders, its own large files (pagefile.sys, a video), and the rest together. */
+function itemsOf(n: UsageNode, path: string, filesIn: FilesIn, max: number) {
+  const kids = n.children.slice(0, max);
+  const files = filesIn(path).slice(0, max);
+  const rest = n.size - kids.reduce((s, c) => s + c.size, 0) - files.reduce((s, f) => s + f.size, 0);
+  return [
+    ...kids.map((c) => ({ node: c as UsageNode | null, file: false, path: joinPath(path, c.name), name: c.name, size: c.size })),
+    ...files.map((f) => ({ node: null, file: true, path: f.path, name: baseName(f.path), size: f.size })),
+    ...(rest > 0 ? [{ node: null, file: false, path: `${path}\0rest`, name: "Smaller files and folders", size: rest }] : []),
+  ].sort((a, b) => b.size - a.size);
+}
+
+function layout(n: UsageNode, path: string, box: Rect, filesIn: FilesIn): Block[] {
+  const items = itemsOf(n, path, filesIn, MAX_TOP);
   const rects = squarify(items.map((i) => i.size), box).map(snap);
   const out: Block[] = [];
   items.forEach((it, i) => {
     const r = rects[i];
     if (r.w < MIN_SIDE || r.h < MIN_SIDE) return;
-    const p = it.node ? joinPath(path, it.name) : `${path}\0rest`;
-    const color = it.node ? PART_COLORS[i % 7] : PART_COLORS[7];
-    out.push({ key: p, path: p, name: it.name, size: it.size, rect: r, color, depth: 0, node: it.node });
-    // Its own largest folders inside it, under its name, when it has the room.
+    const p = it.path;
+    const color = it.node ? PART_COLORS[i % 7] : it.file ? FILE_COLOR : PART_COLORS[7];
+    out.push({ key: p, path: p, name: it.name, size: it.size, rect: r, color, depth: 0, node: it.node, file: it.file });
+    // Its own largest folders and files inside it, under its name, when it has the room.
     if (it.node && it.node.children.length && r.w > 90 && r.h > HEAD + 30) {
       const inner = { x: r.x + PAD, y: r.y + HEAD, w: r.w - 2 * PAD, h: r.h - HEAD - PAD };
-      const sub = it.node.children.slice(0, MAX_INNER);
-      const subRest = restOf({ ...it.node, children: sub });
-      const subItems = [...sub.map((c) => ({ c: c as UsageNode | null, size: c.size })), ...(subRest > 0 ? [{ c: null, size: subRest }] : [])];
+      const subItems = itemsOf(it.node, p, filesIn, MAX_INNER);
       squarify(subItems.map((s) => s.size), inner).map(snap).forEach((q, k) => {
         const s = subItems[k];
-        if (!s.c || q.w < MIN_SIDE || q.h < MIN_SIDE) return;
-        const sp = joinPath(p, s.c.name);
-        out.push({ key: sp, path: sp, name: s.c.name, size: s.c.size, rect: q, color, depth: 1, node: s.c });
+        if (!(s.node || s.file) || q.w < MIN_SIDE || q.h < MIN_SIDE) return;
+        out.push({ key: s.path, path: s.path, name: s.name, size: s.size, rect: q, color: s.file ? FILE_COLOR : color, depth: 1, node: s.node, file: s.file });
       });
     }
   });
@@ -106,10 +118,22 @@ export function TreemapTab({ report, gone, onMenu }: { report: Report; gone: Set
 
   const node = nodeAt(report.tree, zoom) ?? report.tree;
   const path = zoom.reduce((p, n) => joinPath(p, n), report.root);
+  // The report's large files by the folder they are in, so each folder's own show as blocks.
+  const byDir = useMemo(() => {
+    const m = new Map<string, UsageFile[]>();
+    for (const f of report.big) {
+      if (gone.has(f.path)) continue;
+      const d = f.path.replace(/[\\/][^\\/]*$/, "").toLowerCase();
+      const list = m.get(d);
+      if (list) list.push(f); else m.set(d, [f]);
+    }
+    return m;
+  }, [report.big, gone]);
   const blocks = useMemo(() => {
     const visible = { ...node, children: node.children.filter((c) => !gone.has(joinPath(path, c.name))) };
-    return size.w ? layout(visible, path, { x: 0, y: 0, w: size.w, h: size.h }) : [];
-  }, [node, path, size, gone]);
+    const filesIn: FilesIn = (dir) => byDir.get(dir.replace(/[\\/]+$/, "").toLowerCase()) ?? [];
+    return size.w ? layout(visible, path, { x: 0, y: 0, w: size.w, h: size.h }, filesIn) : [];
+  }, [node, path, size, gone, byDir]);
   const into = (b: Block) => { if (!b.node?.children.length) return; setHover(null); setZoom(b.path.slice(report.root.length).split(/[\\/]/).filter(Boolean)); };
 
   return (
@@ -144,9 +168,9 @@ export function TreemapTab({ report, gone, onMenu }: { report: Report; gone: Set
         ); })}
         {hover && rested && (
           <div ref={tip} className="pointer-events-none absolute left-0 top-0 z-10 flex max-w-[420px] flex-col gap-0.5 whitespace-nowrap rounded-md border border-subtle bg-elev/95 px-2 py-1 text-[11.5px] shadow-lg">
-            <span className="truncate font-mono text-[11px] text-text-muted">{hover.node ? hover.path : path}</span>
+            <span className="truncate font-mono text-[11px] text-text-muted">{hover.node || hover.file ? hover.path : path}</span>
             <span className="flex items-baseline gap-2">
-              <span className="min-w-0 truncate text-text-primary">{hover.node ? hover.name : "Files and smaller folders"}</span>
+              <span className="min-w-0 truncate text-text-primary">{hover.name}</span>
               <span className="font-semibold text-text-primary">{sizeLabel(hover.size)}</span>
               <span className="text-text-muted">{((hover.size / (node.size || 1)) * 100).toFixed(1)}%{hover.node ? ` · ${hover.node.files.toLocaleString()} files` : ""}</span>
             </span>
