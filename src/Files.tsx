@@ -85,7 +85,9 @@ function Explorer({ tab }: { tab: Tab }) {
   const body = useRef<HTMLDivElement>(null);
   // A narrow pane drops the sidebar and the buttons' labels (useWidth.ts); the list drops columns itself.
   // Its button shows the sidebar over the list until a place is picked or you click away.
-  const row = useRef<HTMLDivElement>(null), narrow = useWidth(row) < 560, [sideOpen, setSideOpen] = useState(false);
+  const row = useRef<HTMLDivElement>(null), rowW = useWidth(row), narrow = rowW < 560, [sideOpen, setSideOpen] = useState(false);
+  // Below this the toolbar's Analyze, Sort and View drop their words, so the path has the room.
+  const compact = rowW < 1000;
   // The sidebar and the preview pane are dragged wider or narrower by their inner edge; the width
   // is kept for every tab once the drag ends.
   const [sideW, sideDrag, sideDragging] = useResize({ initial: s.sidebarWidth ?? 224, min: 150, max: 420, direction: "horizontal" });
@@ -449,11 +451,11 @@ function Explorer({ tab }: { tab: Tab }) {
               }
             }}
             onBlur={() => setEditingPath(false)}
-            className="h-8 min-w-0 flex-1 rounded-lg border border-[var(--accent)] bg-elev px-2.5 text-[12.5px] text-text-primary outline-none" />
+            className="h-8 min-w-[180px] flex-1 rounded-lg border border-[var(--accent)] bg-elev px-2.5 text-[12.5px] text-text-primary outline-none" />
         ) : (
           <div ref={crumbBar} onClick={(ev) => { if (ev.target === ev.currentTarget) setEditingPath(true); }} title="Click to type a path"
             onWheel={(ev) => { ev.currentTarget.scrollLeft += ev.deltaY || ev.deltaX; }}
-            className="flex h-8 min-w-0 flex-1 cursor-text items-center gap-0.5 overflow-hidden rounded-lg border border-subtle bg-elev px-1.5 text-[12.5px]"
+            className="flex h-8 min-w-[180px] flex-1 cursor-text items-center gap-0.5 overflow-hidden rounded-lg border border-subtle bg-elev px-1.5 text-[12.5px]"
             style={crumbsClipped ? { maskImage: "linear-gradient(to right, transparent, black 28px)" } : undefined}>
             {pathCrumbs.map((c, i, all) => (
               <span key={c.path} className="flex shrink-0 items-center">
@@ -468,7 +470,7 @@ function Explorer({ tab }: { tab: Tab }) {
           </div>
         )}
 
-        <label className="flex h-8 w-64 shrink-0 items-center gap-2 rounded-lg border border-subtle bg-elev px-2.5 text-text-muted focus-within:border-[var(--accent)]">
+        <label className="flex h-8 w-64 min-w-[120px] shrink items-center gap-2 rounded-lg border border-subtle bg-elev px-2.5 text-text-muted focus-within:border-[var(--accent)]">
           <SearchIcon size={14} className="shrink-0" />
           <input id={`files-search-${tab.id}`} value={query} placeholder={phone ? "Search is not available on a phone" : `Search ${nameOf(cwd)}`} disabled={phone} aria-label="Search this folder"
             onChange={(ev) => { setQuery(ev.target.value); if (!ev.target.value) setSearched(""); }}
@@ -477,10 +479,10 @@ function Explorer({ tab }: { tab: Tab }) {
           {query && <button aria-label="Clear the search" onClick={() => { setQuery(""); setSearched(""); }} className="text-text-muted hover:text-text-primary"><X size={13} /></button>}
         </label>
 
-        {canAnalyze && <button className={menuButton} onClick={() => analyze(cwd)} title={`How much space ${nameOf(cwd)} takes, and where`}><PieChart size={14} />{!narrow && "Analyze"}</button>}
-        <button className={menuButton} aria-haspopup="menu" onClick={sortMenu} title="Sort"><ArrowUpDown size={14} />{!narrow && "Sort"}<ChevronDown size={12} className="text-text-muted" /></button>
-        <button className={menuButton} aria-haspopup="menu" onClick={viewMenu}>
-          {tab.view === "grid" ? <LayoutGrid size={14} /> : <List size={14} />}{!narrow && "View"}<ChevronDown size={12} className="text-text-muted" />
+        {canAnalyze && <button className={menuButton} onClick={() => analyze(cwd)} title={`How much space ${nameOf(cwd)} takes, and where`}><PieChart size={14} />{!compact && "Analyze"}</button>}
+        <button className={menuButton} aria-haspopup="menu" onClick={sortMenu} title="Sort"><ArrowUpDown size={14} />{!compact && "Sort"}<ChevronDown size={12} className="text-text-muted" /></button>
+        <button className={menuButton} aria-haspopup="menu" onClick={viewMenu} title="View">
+          {tab.view === "grid" ? <LayoutGrid size={14} /> : <List size={14} />}{!compact && "View"}<ChevronDown size={12} className="text-text-muted" />
         </button>
       </div>
 
