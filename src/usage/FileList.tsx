@@ -1,6 +1,6 @@
 // A list of files from a report (Largest files, a bucket of Age): ticked ones can be revealed or sent
 // to the Recycle Bin, and a file deleted here leaves the list at once.
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { fsReveal, isWindows } from "../../shim/bridge.js";
 import type { UsageFile } from "../../shim/bridge.js";
 import { ConfirmDialog, FileIcon, themeById, useEditorSettings, type ConfirmState } from "../../shim/ui.js";
@@ -8,6 +8,9 @@ import { sizeLabel, parentOf, baseName } from "../logic";
 import { remove } from "../ops";
 import { notice, failure } from "../notice";
 import { agoLabel, kindOf } from "./report";
+
+/** Rows drawn at first, and added each time the list is scrolled near its end. */
+const PAGE = 150;
 
 type SortKey = "name" | "folder" | "kind" | "size" | "mtime";
 const extOf = (p: string) => baseName(p).split(".").pop()?.toLowerCase() ?? "";
@@ -34,7 +37,10 @@ export function FileList({ files, gone, onGone, empty }: {
   const [confirm, setConfirm] = useState<ConfirmState | null>(null);
   // Largest first until a heading is clicked; a second click on it turns the order round.
   const [sort, setSort] = useState<{ key: SortKey; asc: boolean }>({ key: "size", asc: false });
-  const shown = sortFiles(files.filter((f) => !gone.has(f.path)), sort.key, sort.asc);
+  const shown = useMemo(() => sortFiles(files.filter((f) => !gone.has(f.path)), sort.key, sort.asc), [files, gone, sort]);
+  // A page of rows at a time: the list can hold thousands, and drawing them all at once made opening
+  // the tab heavy. More are added at the foot of the list as it is scrolled there.
+  const [limit, setLimit] = useState(PAGE);
   const head = (key: SortKey, label: string, right = false) => (
     <button onClick={() => setSort((s) => (s.key === key ? { key, asc: !s.asc } : { key, asc: key === "name" || key === "folder" || key === "kind" }))}
       className={"flex items-center gap-1 truncate hover:text-text-primary " + (right ? "justify-end " : "") + (sort.key === key ? "text-text-secondary" : "")}>
@@ -62,8 +68,9 @@ export function FileList({ files, gone, onGone, empty }: {
       <div className="grid h-8 shrink-0 grid-cols-[28px_minmax(0,1.1fr)_minmax(0,1.4fr)_100px_90px_120px] items-center gap-3 border-b border-subtle px-4 text-[11.5px] text-text-muted">
         <span />{head("name", "Name")}{head("folder", "Folder")}{head("kind", "Kind")}{head("size", "Size", true)}{head("mtime", "Last change")}
       </div>
-      <div className="min-h-0 flex-1 overflow-y-auto">
-        {shown.map((f) => (
+      <div className="min-h-0 flex-1 overflow-y-auto"
+        onScroll={(e) => { const el = e.currentTarget; if (limit < shown.length && el.scrollTop + el.clientHeight > el.scrollHeight - 400) setLimit((n) => n + PAGE); }}>
+        {shown.slice(0, limit).map((f) => (
           <label key={f.path} onDoubleClick={() => void fsReveal(f.path).catch((e: unknown) => console.warn("[files] reveal failed", e))}
             className={"grid h-8 cursor-pointer grid-cols-[28px_minmax(0,1.1fr)_minmax(0,1.4fr)_100px_90px_120px] items-center gap-3 px-4 text-[12.5px] hover:bg-white/5 " + (ticked.has(f.path) ? "bg-[var(--accent-soft)]" : "")}>
             <input type="checkbox" checked={ticked.has(f.path)} onChange={() => toggle(f.path)} aria-label={`Select ${baseName(f.path)}`} style={{ accentColor: "var(--accent)" }} />
