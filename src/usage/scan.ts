@@ -5,7 +5,7 @@
 // answer is added to the report at once, which is the progress shown, and Stop takes effect between
 // two of them.
 import { useSyncExternalStore } from "react";
-import { fsList, fsUsage } from "../../shim/bridge.js";
+import { fsList, fsUsage, fsUsageAdmin } from "../../shim/bridge.js";
 import { AGE_DAYS, MAX_FILES, MIN_BYTES, addFolder, addLooseFiles, emptyReport, type Report } from "./report";
 
 export interface Scan {
@@ -60,6 +60,27 @@ export async function scan(root: string) {
     console.warn(`[files] measuring ${root} failed`, e);
     set(root, { ...s, state: "failed", current: "", error: String(e).replace(/^Error: /, ""), took: Date.now() - started });
   }
+}
+
+/**
+ * Measure the folders that could not be read as administrator (Windows asks first) and add them to
+ * the report. Resolves to how many were measured; rejects with "cancelled" if the user said no.
+ */
+export async function measureAsAdmin(root: string): Promise<number> {
+  const s0 = scans.get(root);
+  if (!s0?.unreadable.length || s0.state === "scanning") return 0;
+  const answers = await fsUsageAdmin(s0.unreadable, MIN_BYTES, MIN_BYTES, MAX_FILES, AGE_DAYS);
+  // The report may have moved on meanwhile (a rescan): add to the one there is now, if it is the same.
+  const s = scans.get(root);
+  if (!s || s.started !== s0.started) return 0;
+  let report = s.report, measured = 0;
+  const still: string[] = [];
+  answers.forEach((a, i) => {
+    if ("ok" in a) { report = addFolder({ ...report, skipped: report.skipped - 1 }, a.ok); measured++; }
+    else { console.warn(`[files] measuring ${s0.unreadable[i]} as administrator failed: ${a.err}`); still.push(s0.unreadable[i]); }
+  });
+  set(root, { ...s, report, unreadable: still });
+  return measured;
 }
 
 /** Stop after the folder being measured now; what was measured stays. */

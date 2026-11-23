@@ -2,13 +2,13 @@
 // went, Rescan, Stop and Export, and the six views of it as tabs. The scan itself is scan.ts's and
 // outlives this view.
 import { useEffect, useState } from "react";
-import { ArrowLeft, PieChart, RefreshCw } from "lucide-react";
+import { ArrowLeft, PieChart, RefreshCw, ShieldCheck } from "lucide-react";
 import { fsDrives, fsReveal, fsWrite, pickSavePath, isWindows } from "../../shim/bridge.js";
 import { ConfirmDialog, ContextMenu, type ConfirmState, type MenuEntry } from "../../shim/ui.js";
 import { sizeLabel, baseName } from "../logic";
 import { remove } from "../ops";
 import { notice, failure } from "../notice";
-import { scan, scanOf, stopScan, useScan } from "./scan";
+import { measureAsAdmin, scan, scanOf, stopScan, useScan } from "./scan";
 import { nodeAt, toCsv } from "./report";
 import { TreeTab } from "./TreeTab";
 import { TreemapTab } from "./TreemapTab";
@@ -78,6 +78,15 @@ export function UsageView({ root, onClose, onOpen, onAnalyze }: {
     ? `${s.unreadable.join("\n")}\n\nWindows lets only itself or an administrator into these, so their size is not counted.`
     : "Windows did not let Deck into these, usually system folders, so their size is not counted.";
 
+  // Windows asks first (UAC); a "no" is the user's answer, not a failure to report.
+  const [elevating, setElevating] = useState(false);
+  const asAdmin = () => {
+    setElevating(true);
+    void measureAsAdmin(root).then((n) => { if (n) notice(`${n} more folder${n === 1 ? "" : "s"} measured`); },
+      (e: unknown) => { if (!/cancelled/.test(String(e))) { console.warn("[files] measuring as administrator failed", e); failure("Measuring as administrator failed", String(e).replace(/^Error: /, "")); } })
+      .finally(() => setElevating(false));
+  };
+
   return (
     <div className="flex min-h-0 flex-1 flex-col bg-app">
       <div className="flex h-[52px] shrink-0 items-center gap-4 border-b border-subtle bg-card px-3">
@@ -93,6 +102,11 @@ export function UsageView({ root, onClose, onOpen, onAnalyze }: {
           <span className="h-1.5 w-52 overflow-hidden rounded-full bg-elev"><span className="block h-full transition-[width]" style={{ width: `${(s.done / Math.max(1, s.total)) * 100}%`, background: "var(--accent)" }} /></span>
           <button className={btn} onClick={() => stopScan(root)}>Stop</button>
         </> : <>
+          {isWindows() && !!s?.unreadable.length && s.state !== "failed" && (
+            <button className={btn} disabled={elevating} onClick={asAdmin} title={`Windows asks to allow it, then ${s.unreadable.length === 1 ? "this folder is" : `these ${s.unreadable.length} folders are`} measured too:\n${s.unreadable.join("\n")}`}>
+              <ShieldCheck size={13} />{elevating ? "Measuring…" : "Measure as administrator"}
+            </button>
+          )}
           <button className={btn} onClick={() => { setGone(new Set()); void scan(root); }}><RefreshCw size={13} />Rescan</button>
           <button className={btn} disabled={!r} onClick={() => void exportCsv()}>Export CSV</button>
         </>}
