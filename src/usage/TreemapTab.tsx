@@ -29,7 +29,10 @@ function labelsOf(b: Block): { name: boolean; size: string | null; tiny: boolean
   const px = small ? 4 : 8, py = small ? 2 : 6;
   const label = sizeLabel(b.size);
   const sizeFits = label.length * 6.1 + 2 * px <= w;
-  if (sizeFits && b.name.length * 6.8 + 2 * px <= w && 30 + 2 * py <= h) return { name: true, size: label, tiny: false, px, py };
+  // A name that fits whole, or that keeps at least 8 letters before its "…": a block that wide still
+  // says what it is (deck_flutt…), where "cha…" did not.
+  const nameFits = Math.min(b.name.length, 8) * 6.8 + 2 * px <= w;
+  if (sizeFits && nameFits && 30 + 2 * py <= h) return { name: true, size: label, tiny: false, px, py };
   if (sizeFits && 14 + 2 * py <= h) return { name: false, size: label, tiny: false, px, py };
   const tiny = label.replace(" ", "");
   if (tiny.length * 5.6 + 4 <= w && 13 <= h) return { name: false, size: tiny, tiny: true, px: 2, py: 0 };
