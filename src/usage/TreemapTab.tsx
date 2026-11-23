@@ -128,10 +128,13 @@ export function TreemapTab({ report, gone, onMenu }: { report: Report; gone: Set
           </div>
         ))}
         {hover && rested && (
-          <div ref={tip} className="pointer-events-none absolute left-0 top-0 z-10 flex items-baseline gap-2 whitespace-nowrap rounded-md border border-subtle bg-elev/95 px-2 py-1 text-[11.5px] shadow-lg">
-            <span className="max-w-[220px] truncate text-text-primary">{hover.node ? hover.name : "Files and smaller folders"}</span>
-            <span className="font-semibold text-text-primary">{sizeLabel(hover.size)}</span>
-            <span className="text-text-muted">{((hover.size / (node.size || 1)) * 100).toFixed(1)}%</span>
+          <div ref={tip} className="pointer-events-none absolute left-0 top-0 z-10 flex max-w-[420px] flex-col gap-0.5 whitespace-nowrap rounded-md border border-subtle bg-elev/95 px-2 py-1 text-[11.5px] shadow-lg">
+            <span className="truncate font-mono text-[11px] text-text-muted">{hover.node ? hover.path : path}</span>
+            <span className="flex items-baseline gap-2">
+              <span className="min-w-0 truncate text-text-primary">{hover.node ? hover.name : "Files and smaller folders"}</span>
+              <span className="font-semibold text-text-primary">{sizeLabel(hover.size)}</span>
+              <span className="text-text-muted">{((hover.size / (node.size || 1)) * 100).toFixed(1)}%</span>
+            </span>
           </div>
         )}
       </div>
