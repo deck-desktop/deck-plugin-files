@@ -6,13 +6,10 @@
 // browser, code in the Editor), and anything Deck has nothing for opens in Windows' own app.
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
-  ArrowLeft, ArrowRight, PanelLeft, ArrowUp, ArrowUpDown, Check, ChevronDown, Columns2, FolderOpen, LayoutGrid, List,
-  PanelRight, RefreshCw, Search as SearchIcon, X,
+  ArrowLeft, ArrowRight, PanelLeft, ArrowUp, ArrowUpDown, ChevronDown, Columns2, FolderOpen, LayoutGrid, List,
+  PanelRight, PieChart, RefreshCw, Search as SearchIcon, X,
 } from "lucide-react";
 import { fsOpen, fsReveal, fsList, isWindows } from "../shim/bridge.js";
-
-/** Where a deleted file goes on this PC: the Recycle Bin on Windows, the Trash elsewhere. */
-const BIN = () => (isWindows() ? "the Recycle Bin" : "the Trash");
 import {
   ConfirmDialog, ContextMenu, NamePrompt, TabStrip, onKeys, openIn, openerFor, openersFor, useResize, useScope,
   type ConfirmState, type MenuEntry, type NamePromptState,
@@ -20,17 +17,19 @@ import {
 import { notice, failure } from "./notice";
 import { applyDtCommand, openInEditor, switchWorkspace } from "../shim/terminals.js";
 import { projectOf } from "./project";
-import { baseName, crumbs, groupEntries, isAdb, isDevice, isRemote, parentOf, previewKind, sizeLabel, sortEntries, typeAhead, type Clash, type Entry, type SortKey } from "./logic";
+import { baseName, crumbs, groupEntries, isAdb, isDevice, isRemote, parentOf, previewKind, sizeLabel, sortEntries, typeAhead, type Entry, type SortKey } from "./logic";
 import { nameOf, phoneCrumbs, relist, useListing } from "./folders";
-import { cancelJob, clipboard, create, fromPhone, paste, remove, rename, setClipboard, useClipboard, useJob, type Ask, type Choice } from "./ops";
+import { cancelJob, clipboard, create, fromPhone, paste, remove, rename, setClipboard, useClipboard, useJob, type Ask } from "./ops";
 import { Details, Grid } from "./Listing";
 import { Preview } from "./Preview";
 import { Search } from "./Search";
 import { Sidebar } from "./Sidebar";
 import { useWidth } from "./useWidth";
+import { BIN, ClashDialog, type Asking } from "./ClashDialog";
 import { getState, loadState, newTab, update, updateTab, useFilesState, type Tab } from "./store";
 import { DROP, DragBadge, TABS, setDropHost } from "./drag";
 import { opensInFloat } from "./openin";
+import { UsageView } from "./usage/UsageView";
 
 /** The edge a side pane is dragged by: a few pixels over the pane's border, lit while pointed at. */
 const splitter = "relative z-10 -mx-[3px] w-[6px] shrink-0 cursor-col-resize transition-colors hover:bg-[var(--accent)]";
@@ -41,9 +40,6 @@ const tool = "grid size-8 shrink-0 place-items-center rounded-lg text-text-muted
 /** Each tab's back and forward stacks, for as long as the plugin is loaded. */
 const history = new Map<string, { back: string[]; fwd: string[] }>();
 const hist = (id: string) => { let h = history.get(id); if (!h) { h = { back: [], fwd: [] }; history.set(id, h); } return h; };
-
-/** A name clash being asked about, and how the answer is handed back. */
-interface Asking { clash: Clash; rest: number; resolve: (a: { choice: Choice; forRest: boolean }) => void }
 
 export function Files() {
   const s = useFilesState();
@@ -89,7 +85,9 @@ function Explorer({ tab }: { tab: Tab }) {
   const body = useRef<HTMLDivElement>(null);
   // A narrow pane drops the sidebar and the buttons' labels (useWidth.ts); the list drops columns itself.
   // Its button shows the sidebar over the list until a place is picked or you click away.
-  const row = useRef<HTMLDivElement>(null), narrow = useWidth(row) < 560, [sideOpen, setSideOpen] = useState(false);
+  const row = useRef<HTMLDivElement>(null), rowW = useWidth(row), narrow = rowW < 560, [sideOpen, setSideOpen] = useState(false);
+  // Below this the toolbar's Analyze, Sort and View drop their words, so the path has the room.
+  const compact = rowW < 1000;
   // The sidebar and the preview pane are dragged wider or narrower by their inner edge; the width
   // is kept for every tab once the drag ends.
   const [sideW, sideDrag, sideDragging] = useResize({ initial: s.sidebarWidth ?? 224, min: 150, max: 420, direction: "horizontal" });
@@ -146,6 +144,9 @@ function Explorer({ tab }: { tab: Tab }) {
   const back = () => { const h = hist(tab.id); const p = h.back.pop(); if (p) { h.fwd.push(cwd); go(p, false); } };
   const forward = () => { const h = hist(tab.id); const p = h.fwd.pop(); if (p) { h.back.push(cwd); go(p, false); } };
   const up = () => { const p = parentOf(cwd); if (p) go(p); };
+  // Disk usage is measured on this PC only: not on a server or a phone.
+  const canAnalyze = !phone && !isRemote(cwd);
+  const analyze = (path: string) => updateTab(tab.id, { usage: path });
   const newTabAt = (path: string) => { const t = newTab(path); update((st) => ({ tabs: [...st.tabs, t], active: t.id })); };
 
   /** Open a file the way Deck would, or in Windows' app when Deck has nothing for its kind. */
@@ -294,6 +295,7 @@ function Explorer({ tab }: { tab: Tab }) {
       { label: "Open", hint: "Enter", onClick: () => openEntry(e) },
       ...(e.dir ? [
         { label: "Open in a new tab", onClick: () => newTabAt(e.path) },
+        ...(canAnalyze ? [{ label: "Analyze sizes", icon: PieChart, onClick: () => analyze(e.path) } as MenuEntry] : []),
         // A folder already open as a workspace is switched to rather than opened twice.
         ...(phone ? [] : [projectOf(e.path)
           ? { label: "Go to its workspace", onClick: () => switchWorkspace(projectOf(e.path)!.id) }
@@ -317,6 +319,7 @@ function Explorer({ tab }: { tab: Tab }) {
       { label: "Show hidden files", checked: getState().showHidden, onClick: () => update((st) => ({ showHidden: !st.showHidden })) },
       { label: "Refresh", hint: "F5", onClick: () => void relist(cwd) },
       { label: "Copy this folder's path", onClick: () => copyPaths([cwd]) },
+      ...(canAnalyze ? [{ label: "Analyze this folder's sizes", icon: PieChart, onClick: () => analyze(cwd) } as MenuEntry] : []),
       ...(!remote ? [{ label: isWindows() ? "Open in Windows Explorer" : "Open in the file manager", onClick: () => run("Opening it failed", () => fsOpen(cwd)) } as MenuEntry] : []),
     ];
     setMenu({ x: ev.clientX, y: ev.clientY, items: e ? items : () => { const live = getState(); return items.map((i) => (i !== "sep" && i.checked !== undefined ? { ...i, checked: live.showHidden } : i)); } });
@@ -427,6 +430,8 @@ function Explorer({ tab }: { tab: Tab }) {
         onAdd={() => newTabAt(cwd)} addTitle="New tab here" />
       </div>
 
+      {/* Analyze sizes: the report over this tab, until its back arrow (usage/). */}
+      {tab.usage ? <UsageView root={tab.usage} onClose={() => updateTab(tab.id, { usage: undefined })} onOpen={(p) => { updateTab(tab.id, { usage: undefined }); go(p); }} onAnalyze={analyze} /> : <>
       <div className="flex h-12 shrink-0 items-center gap-1.5 border-b border-subtle px-2.5">
         {narrow && <button className={tool} title="Places" aria-label="Show the sidebar" aria-pressed={sideOpen} onClick={() => setSideOpen((v) => !v)}
           style={sideOpen ? { color: "var(--accent)" } : undefined}><PanelLeft size={16} /></button>}
@@ -446,11 +451,11 @@ function Explorer({ tab }: { tab: Tab }) {
               }
             }}
             onBlur={() => setEditingPath(false)}
-            className="h-8 min-w-0 flex-1 rounded-lg border border-[var(--accent)] bg-elev px-2.5 text-[12.5px] text-text-primary outline-none" />
+            className="h-8 min-w-[180px] flex-1 rounded-lg border border-[var(--accent)] bg-elev px-2.5 text-[12.5px] text-text-primary outline-none" />
         ) : (
           <div ref={crumbBar} onClick={(ev) => { if (ev.target === ev.currentTarget) setEditingPath(true); }} title="Click to type a path"
             onWheel={(ev) => { ev.currentTarget.scrollLeft += ev.deltaY || ev.deltaX; }}
-            className="flex h-8 min-w-0 flex-1 cursor-text items-center gap-0.5 overflow-hidden rounded-lg border border-subtle bg-elev px-1.5 text-[12.5px]"
+            className="flex h-8 min-w-[180px] flex-1 cursor-text items-center gap-0.5 overflow-hidden rounded-lg border border-subtle bg-elev px-1.5 text-[12.5px]"
             style={crumbsClipped ? { maskImage: "linear-gradient(to right, transparent, black 28px)" } : undefined}>
             {pathCrumbs.map((c, i, all) => (
               <span key={c.path} className="flex shrink-0 items-center">
@@ -465,7 +470,7 @@ function Explorer({ tab }: { tab: Tab }) {
           </div>
         )}
 
-        <label className="flex h-8 w-64 shrink-0 items-center gap-2 rounded-lg border border-subtle bg-elev px-2.5 text-text-muted focus-within:border-[var(--accent)]">
+        <label className="flex h-8 w-64 min-w-[120px] shrink items-center gap-2 rounded-lg border border-subtle bg-elev px-2.5 text-text-muted focus-within:border-[var(--accent)]">
           <SearchIcon size={14} className="shrink-0" />
           <input id={`files-search-${tab.id}`} value={query} placeholder={phone ? "Search is not available on a phone" : `Search ${nameOf(cwd)}`} disabled={phone} aria-label="Search this folder"
             onChange={(ev) => { setQuery(ev.target.value); if (!ev.target.value) setSearched(""); }}
@@ -474,9 +479,10 @@ function Explorer({ tab }: { tab: Tab }) {
           {query && <button aria-label="Clear the search" onClick={() => { setQuery(""); setSearched(""); }} className="text-text-muted hover:text-text-primary"><X size={13} /></button>}
         </label>
 
-        <button className={menuButton} aria-haspopup="menu" onClick={sortMenu} title="Sort"><ArrowUpDown size={14} />{!narrow && "Sort"}<ChevronDown size={12} className="text-text-muted" /></button>
-        <button className={menuButton} aria-haspopup="menu" onClick={viewMenu}>
-          {tab.view === "grid" ? <LayoutGrid size={14} /> : <List size={14} />}{!narrow && "View"}<ChevronDown size={12} className="text-text-muted" />
+        {canAnalyze && <button className={menuButton} onClick={() => analyze(cwd)} title={`How much space ${nameOf(cwd)} takes, and where`}><PieChart size={14} />{!compact && "Analyze"}</button>}
+        <button className={menuButton} aria-haspopup="menu" onClick={sortMenu} title="Sort"><ArrowUpDown size={14} />{!compact && "Sort"}<ChevronDown size={12} className="text-text-muted" /></button>
+        <button className={menuButton} aria-haspopup="menu" onClick={viewMenu} title="View">
+          {tab.view === "grid" ? <LayoutGrid size={14} /> : <List size={14} />}{!compact && "View"}<ChevronDown size={12} className="text-text-muted" />
         </button>
       </div>
 
@@ -533,45 +539,12 @@ function Explorer({ tab }: { tab: Tab }) {
             onCopyPath={copyPaths} onReveal={(p) => run("Showing it failed", () => fsReveal(p))} />
         </>)}
       </div>
+      </>}
 
       {menu && <ContextMenu x={menu.x} y={menu.y} items={typeof menu.items === "function" ? menu.items() : menu.items} onClose={() => setMenu(null)} />}
       <ConfirmDialog state={confirm} onClose={() => setConfirm(null)} />
       <NamePrompt state={prompt} onClose={() => setPrompt(null)} />
       {asking && <ClashDialog a={asking} onDone={(ans) => { asking.resolve(ans); setAsking(null); }} />}
-    </div>
-  );
-}
-
-/** A name already in the folder: what to do with it, and maybe with the rest. */
-function ClashDialog({ a, onDone }: { a: Asking; onDone: (ans: { choice: Choice; forRest: boolean }) => void }) {
-  const [forRest, setForRest] = useState(false);
-  const btn = "h-8 rounded-lg border border-subtle bg-elev px-3 text-[12.5px] text-text-secondary transition-colors hover:border-strong hover:text-text-primary";
-  const pick = (choice: Choice) => onDone({ choice, forRest });
-  return (
-    <div className="fixed inset-0 z-[300] flex items-center justify-center bg-black/50" onKeyDown={(e) => { if (e.key === "Escape") pick("skip"); }}>
-      <div role="dialog" aria-label="A file with this name is already here" className="flex w-[460px] flex-col gap-4 rounded-2xl border border-subtle bg-card p-5 shadow-2xl">
-        <div className="flex flex-col gap-1">
-          <span className="text-[15px] font-semibold text-text-primary">{a.clash.name} is already there</span>
-          <span className="text-[12.5px] text-text-secondary">
-            {a.clash.folder ? "A folder cannot be replaced by a copy, only kept beside it with a new name, or skipped." : `Replace it (the old one goes to ${BIN()}), keep both, or skip this one.`}
-          </span>
-        </div>
-        {a.rest > 0 && (
-          <label className="flex items-center gap-2 text-[12.5px] text-text-secondary">
-            <input type="checkbox" checked={forRest} onChange={(e) => setForRest(e.target.checked)} style={{ accentColor: "var(--accent)" }} />
-            Do the same for the other {a.rest}
-          </label>
-        )}
-        <div className="flex justify-end gap-2">
-          <button className={btn} onClick={() => pick("skip")}>Skip</button>
-          <button className={btn} onClick={() => pick("both")}>Keep both</button>
-          {!a.clash.folder && (
-            <button autoFocus onClick={() => pick("replace")} className="flex h-8 items-center gap-1.5 rounded-lg px-3 text-[12.5px] font-medium text-white transition hover:brightness-110" style={{ background: "var(--accent)" }}>
-              <Check size={13} />Replace
-            </button>
-          )}
-        </div>
-      </div>
     </div>
   );
 }
