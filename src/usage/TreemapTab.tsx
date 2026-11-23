@@ -72,8 +72,9 @@ function layout(n: UsageNode, path: string, box: Rect, filesIn: FilesIn): Block[
       const subItems = itemsOf(it.node, p, filesIn, MAX_INNER);
       squarify(subItems.map((s) => s.size), inner).map(snap).forEach((q, k) => {
         const s = subItems[k];
-        if (!(s.node || s.file) || q.w < MIN_SIDE || q.h < MIN_SIDE) return;
-        out.push({ key: s.path, path: s.path, name: s.name, size: s.size, rect: q, color: s.file ? FILE_COLOR : color, depth: 1, node: s.node, file: s.file });
+        // The rest is drawn too (left out, it was a hole among the blocks), faint and in the folders' grey.
+        if (q.w < MIN_SIDE || q.h < MIN_SIDE) return;
+        out.push({ key: s.path, path: s.path, name: s.name, size: s.size, rect: q, color: s.file ? FILE_COLOR : s.node ? color : PART_COLORS[7], depth: 1, node: s.node, file: s.file });
       });
     }
   });
@@ -158,8 +159,8 @@ export function TreemapTab({ report, gone, onMenu }: { report: Report; gone: Set
             style={{
               padding: lab.name || lab.size ? `${lab.py}px ${lab.px}px` : 0,
               left: b.rect.x + GAP, top: b.rect.y + GAP, width: Math.max(0, b.rect.w - 2 * GAP), height: Math.max(0, b.rect.h - 2 * GAP),
-              background: `color-mix(in srgb, ${b.color} ${b.depth ? 26 : b.node ? 10 : 6}%, transparent)`,
-              border: `1px solid color-mix(in srgb, ${b.color} ${b.depth ? 55 : 40}%, transparent)`,
+              background: `color-mix(in srgb, ${b.color} ${!b.node && !b.file ? 6 : b.depth ? 26 : b.node ? 10 : 6}%, transparent)`,
+              border: `1px solid color-mix(in srgb, ${b.color} ${!b.node && !b.file ? 30 : b.depth ? 55 : 40}%, transparent)`,
               outline: hover?.key === b.key ? "1px solid var(--text-primary)" : undefined,
             }}>
             {lab.name && <span className={"truncate text-[12px] leading-4 " + (b.depth ? "text-text-primary" : "font-semibold text-text-primary")}>{b.name}</span>}
