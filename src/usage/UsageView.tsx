@@ -8,8 +8,8 @@ import { ConfirmDialog, ContextMenu, type ConfirmState, type MenuEntry } from ".
 import { sizeLabel, baseName } from "../logic";
 import { remove } from "../ops";
 import { notice, failure } from "../notice";
-import { measureAsAdmin, scan, scanOf, stopScan, useScan } from "./scan";
-import { nodeAt, toCsv } from "./report";
+import { forgetPaths, measureAsAdmin, scan, scanOf, stopScan, useScan } from "./scan";
+import { nodeAt, partsBelow, toCsv } from "./report";
 import { TreeTab } from "./TreeTab";
 import { TreemapTab } from "./TreemapTab";
 import { LargestTab } from "./LargestTab";
@@ -43,7 +43,8 @@ export function UsageView({ root, onClose, onOpen, onAnalyze }: {
       (e: unknown) => console.warn("[files] reading the drives failed", e));
   }, [root]);
 
-  const onGone = (paths: string[]) => setGone((g) => new Set([...g, ...paths]));
+  // Gone from the screen at once, and from the report's totals, so no rescan is needed after a delete.
+  const onGone = (paths: string[]) => { setGone((g) => new Set([...g, ...paths])); forgetPaths(root, paths); };
   const trashFolder = (path: string, size: number) => setConfirm({
     title: `Move ${baseName(path)} to ${bin}?`,
     body: `${sizeLabel(size)}, with everything in it. It can be restored from ${bin}.`,
@@ -57,7 +58,7 @@ export function UsageView({ root, onClose, onOpen, onAnalyze }: {
     { label: isWindows() ? "Show in Windows Explorer" : "Show in the file manager", onClick: () => void fsReveal(path).catch((e: unknown) => console.warn("[files] reveal failed", e)) },
     { label: "Copy path", onClick: () => void navigator.clipboard.writeText(path).then(() => notice("Path copied")) },
     "sep",
-    { label: `Move to ${bin}…`, danger: true, onClick: () => trashFolder(path, s ? nodeAt(s.report.tree, path.slice(root.length).split(/[\/]/).filter(Boolean))?.size ?? 0 : 0) },
+    { label: `Move to ${bin}…`, danger: true, onClick: () => trashFolder(path, s ? nodeAt(s.report.tree, partsBelow(root, path))?.size ?? 0 : 0) },
   ] });
   const exportCsv = async () => {
     if (!s) return;

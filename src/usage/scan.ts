@@ -6,7 +6,7 @@
 // two of them.
 import { useSyncExternalStore } from "react";
 import { fsList, fsUsage, fsUsageAdmin } from "../../shim/bridge.js";
-import { AGE_DAYS, MAX_FILES, MIN_BYTES, addFolder, addLooseFiles, emptyReport, type Report } from "./report";
+import { AGE_DAYS, MAX_FILES, MIN_BYTES, addFolder, addLooseFiles, emptyReport, withoutPath, type Report } from "./report";
 
 export interface Scan {
   report: Report;
@@ -81,6 +81,14 @@ export async function measureAsAdmin(root: string): Promise<number> {
   });
   set(root, { ...s, report, unreadable: still });
   return measured;
+}
+
+/** Take paths moved to the bin out of `root`'s report, its totals included (withoutPath). */
+export function forgetPaths(root: string, paths: string[]) {
+  const s = scans.get(root);
+  if (!s) return;
+  const now = Date.now();
+  set(root, { ...s, report: paths.reduce((r, p) => withoutPath(r, p, now), s.report) });
 }
 
 /** Stop after the folder being measured now; what was measured stays. */

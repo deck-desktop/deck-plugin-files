@@ -143,3 +143,38 @@ export function toCsv(r: Report): string {
   walk(r.tree, r.root);
   return rows.join("\r\n") + "\r\n";
 }
+
+/** `path`'s parts below the report's root ("D:\a\b" under "D:\" is ["a", "b"]). */
+export const partsBelow = (root: string, path: string) => path.slice(root.length).split(/[\\/]/).filter(Boolean);
+
+/**
+ * The report with `path` gone (moved to the bin from the report): a listed folder, or a file the report
+ * knows by name. Every folder above it loses its size and files, so the totals are right without a
+ * rescan. A file's type and age lose it too; a folder's are left as they were (the report does not
+ * know what was in it by type), until a rescan. Anything the report does not know is left alone.
+ */
+export function withoutPath(r: Report, path: string, now: number): Report {
+  const names = partsBelow(r.root, path);
+  if (!names.length) return r;
+  const folder = nodeAt(r.tree, names);
+  const file = folder ? null : r.big.find((f) => f.path === path) ?? null;
+  if (!folder && !file) return r;
+  const size = folder ? folder.size : file!.size, files = folder ? folder.files : 1;
+  // Down the path, each listed folder smaller; the folder itself taken out of its parent's list.
+  const shrink = (n: UsageNode, rest: string[]): UsageNode => {
+    const out = { ...n, size: Math.max(0, n.size - size), files: Math.max(0, n.files - files) };
+    if (!rest.length) return out;
+    const i = n.children.findIndex((c) => c.name === rest[0]);
+    if (i < 0) return out;
+    const children = folder && rest.length === 1 ? n.children.filter((_, k) => k !== i) : n.children.map((c, k) => (k === i ? shrink(c, rest.slice(1)) : c));
+    return { ...out, children: children.sort((a, b) => b.size - a.size) };
+  };
+  const inside = (p: string) => p === path || p.startsWith(path + "\\") || p.startsWith(path + "/");
+  let { types, ages } = r;
+  if (file) {
+    const ext = extOf(baseName(path)), b = ageBucket(file.mtime, now);
+    types = types.map((t) => (t.ext === ext ? { ...t, size: Math.max(0, t.size - size), count: Math.max(0, t.count - 1) } : t)).filter((t) => t.count > 0);
+    ages = ages.map(([s, c], i) => (i === b ? [Math.max(0, s - size), Math.max(0, c - 1)] : [s, c]));
+  }
+  return { ...r, tree: shrink(r.tree, names), big: r.big.filter((f) => !inside(f.path)), types, ages };
+}

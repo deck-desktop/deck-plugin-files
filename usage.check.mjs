@@ -91,4 +91,24 @@ const sets = D.sameContent([f("x", 7, 1), f("y", 7, 3), f("z", 7, 2), f("w", 7, 
 assert.deepEqual(sets.map((g) => g.map((x) => x.path)), [["y", "x"]], "a lone hash and an unreadable file are no set");
 assert.equal(D.freeable([[f("a", 10), f("b", 10), f("c", 10)], [f("d", 5), f("e", 5)]]), 25);
 
+// Moved to the bin from the report: the totals above it shrink without a rescan.
+{
+  const tree = { name: "D:", size: 100, files: 10, newest: 0, children: [
+    { name: "a", size: 60, files: 6, newest: 0, children: [{ name: "deep", size: 40, files: 4, newest: 0, children: [] }] },
+    { name: "b", size: 30, files: 3, newest: 0, children: [] }] };
+  const rep = { ...R.emptyReport("D:\\"), tree, big: [{ path: String.raw`D:\a\deep\x.zip`, size: 20, mtime: now - DAY }, { path: String.raw`D:\b\y.bin`, size: 10, mtime: now - DAY }],
+    types: [{ ext: "zip", size: 20, count: 1 }, { ext: "bin", size: 10, count: 1 }], ages: [[30, 2], [0, 0], [0, 0], [0, 0], [0, 0], [0, 0]] };
+  const noDeep = R.withoutPath(rep, String.raw`D:\a\deep`, now);
+  assert.equal(noDeep.tree.size, 60);
+  assert.deepEqual(noDeep.tree.children.map((c) => [c.name, c.size]), [["b", 30], ["a", 20]], "a shrinks and is now smaller than b");
+  assert.equal(noDeep.tree.children[1].children.length, 0, "the folder is gone from its parent");
+  assert.deepEqual(noDeep.big.map((f) => f.path), [String.raw`D:\b\y.bin`], "its large files went with it");
+  const noFile = R.withoutPath(rep, String.raw`D:\b\y.bin`, now);
+  assert.equal(noFile.tree.size, 90);
+  assert.equal(R.nodeAt(noFile.tree, ["b"]).size, 20);
+  assert.deepEqual(noFile.types.map((t) => t.ext), ["zip"], "a type with nothing left goes");
+  assert.deepEqual(noFile.ages[0], [20, 1]);
+  assert.equal(R.withoutPath(rep, String.raw`D:\nope.txt`, now), rep, "something it does not know leaves it as it is");
+}
+
 console.log("usage: all checks passed");
