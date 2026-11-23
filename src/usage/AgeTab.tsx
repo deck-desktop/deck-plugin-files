@@ -5,7 +5,7 @@ import { sizeLabel } from "../logic";
 import { AGE_LABELS, ageBucket, type Report } from "./report";
 import { FileList } from "./FileList";
 
-export function AgeTab({ report, gone, onGone }: { report: Report; gone: Set<string>; onGone: (p: string[]) => void }) {
+export function AgeTab({ report, gone, onGone, onOpenFolder }: { report: Report; gone: Set<string>; onGone: (p: string[]) => void; onOpenFolder: (dir: string) => void }) {
   const [bucket, setBucket] = useState(AGE_LABELS.length - 1);
   const max = Math.max(1, ...report.ages.map((a) => a[0]));
   const now = Date.now();
@@ -31,7 +31,7 @@ export function AgeTab({ report, gone, onGone }: { report: Report; gone: Set<str
         <span className="font-semibold text-text-primary">{AGE_LABELS[bucket]}</span>
         <span className="text-text-muted">its largest files</span>
       </div>
-      <FileList key={bucket} files={files} gone={gone} onGone={onGone} empty="No file of 1 MB or more changed then." />
+      <FileList key={bucket} files={files} gone={gone} onGone={onGone} onOpenFolder={onOpenFolder} empty="No file of 1 MB or more changed then." />
     </div>
   );
 }

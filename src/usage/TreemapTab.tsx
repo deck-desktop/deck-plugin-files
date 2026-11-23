@@ -81,7 +81,9 @@ function layout(n: UsageNode, path: string, box: Rect, filesIn: FilesIn): Block[
   return out;
 }
 
-export function TreemapTab({ report, gone, onMenu }: { report: Report; gone: Set<string>; onMenu: (path: string, x: number, y: number) => void }) {
+export function TreemapTab({ report, gone, onMenu, onFileMenu }: {
+  report: Report; gone: Set<string>; onMenu: (path: string, x: number, y: number) => void; onFileMenu: (path: string, x: number, y: number) => void;
+}) {
   const [zoom, setZoom] = useState<string[]>([]);
   const [hover, setHover] = useState<Block | null>(null);
   const box = useRef<HTMLDivElement>(null);
@@ -153,7 +155,7 @@ export function TreemapTab({ report, gone, onMenu }: { report: Report; gone: Set
         onMouseMove={(e) => { const r = e.currentTarget.getBoundingClientRect(); at.current = { x: e.clientX - r.left, y: e.clientY - r.top }; place(); }}>
         {blocks.map((b) => { const lab = labelsOf(b); return (
           <div key={b.key} onClick={(e) => { e.stopPropagation(); into(b); }}
-            onContextMenu={(e) => { if (!b.node) return; e.preventDefault(); e.stopPropagation(); onMenu(b.path, e.clientX, e.clientY); }}
+            onContextMenu={(e) => { if (!b.node && !b.file) return; e.preventDefault(); e.stopPropagation(); (b.file ? onFileMenu : onMenu)(b.path, e.clientX, e.clientY); }}
             onMouseEnter={() => setHover(b)}
             className={"absolute box-border flex flex-col overflow-hidden " + "" + (b.node?.children.length ? "cursor-zoom-in" : "")}
             style={{

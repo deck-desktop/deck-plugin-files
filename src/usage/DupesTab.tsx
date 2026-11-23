@@ -13,7 +13,7 @@ import { freeable, sameContent, sameSize } from "./dupes";
 
 const btn = "h-[30px] rounded-lg border border-subtle bg-elev px-3 text-[12.5px] text-text-secondary transition-colors hover:border-strong hover:text-text-primary disabled:opacity-40";
 
-export function DupesTab({ report, gone, onGone }: { report: Report; gone: Set<string>; onGone: (p: string[]) => void }) {
+export function DupesTab({ report, gone, onGone, onMenu }: { report: Report; gone: Set<string>; onGone: (p: string[]) => void; onMenu: (path: string, x: number, y: number) => void }) {
   const [sets, setSets] = useState<UsageFile[][]>([]);
   const [run, setRun] = useState<{ done: number; total: number; on: boolean } | null>(null);
   const [ticked, setTicked] = useState<Set<string>>(new Set());
@@ -87,7 +87,7 @@ export function DupesTab({ report, gone, onGone }: { report: Report; gone: Set<s
               <span className="ml-auto" style={{ color: "var(--accent)" }}>{sizeLabel(set[0].size * (set.length - 1))} could be freed</span>
             </div>
             {set.map((f, i) => (
-              <label key={f.path} className="grid h-8 cursor-pointer grid-cols-[28px_minmax(0,1fr)_120px_60px] items-center gap-3 border-t border-white/[0.04] px-3 text-[12.5px] hover:bg-white/5">
+              <label key={f.path} onContextMenu={(e) => { e.preventDefault(); onMenu(f.path, e.clientX, e.clientY); }} className="grid h-8 cursor-pointer grid-cols-[28px_minmax(0,1fr)_120px_60px] items-center gap-3 border-t border-white/[0.04] px-3 text-[12.5px] hover:bg-white/5">
                 <input type="checkbox" checked={ticked.has(f.path)} onChange={() => toggle(f.path)} aria-label="Select this copy" style={{ accentColor: "var(--accent)" }} />
                 <span className="truncate font-mono text-[11.5px] text-text-secondary" title={f.path}>{f.path}</span>
                 <span className="text-text-muted">{agoLabel(f.mtime, Date.now())}</span>

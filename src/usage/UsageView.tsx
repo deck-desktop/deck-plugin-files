@@ -3,9 +3,9 @@
 // outlives this view.
 import { useEffect, useState } from "react";
 import { ArrowLeft, PieChart, RefreshCw, ShieldCheck } from "lucide-react";
-import { fsDrives, fsReveal, fsWrite, pickSavePath, isWindows } from "../../shim/bridge.js";
+import { fsDrives, fsOpen, fsReveal, fsWrite, pickSavePath, isWindows } from "../../shim/bridge.js";
 import { ConfirmDialog, ContextMenu, type ConfirmState, type MenuEntry } from "../../shim/ui.js";
-import { sizeLabel, baseName } from "../logic";
+import { sizeLabel, baseName, parentOf } from "../logic";
 import { remove } from "../ops";
 import { notice, failure } from "../notice";
 import { forgetPaths, measureAsAdmin, scan, scanOf, stopScan, useScan } from "./scan";
@@ -121,11 +121,11 @@ export function UsageView({ root, onClose, onOpen, onAnalyze }: {
       </div>
       {!r ? <div className="flex flex-1 items-center justify-center text-[12.5px] text-text-muted">Measuring…</div>
         : tab === "tree" ? <TreeTab report={r} free={free} gone={gone} onOpen={onOpen} onTrash={trashFolder} onMenu={folderMenu} />
-        : tab === "treemap" ? <TreemapTab report={r} gone={gone} onMenu={folderMenu} />
-        : tab === "largest" ? <LargestTab report={r} gone={gone} onGone={onGone} kind={kind} setKind={setKind} />
+        : tab === "treemap" ? <TreemapTab report={r} gone={gone} onMenu={folderMenu} onFileMenu={fileMenu} />
+        : tab === "largest" ? <LargestTab report={r} gone={gone} onGone={onGone} kind={kind} setKind={setKind} onOpenFolder={onOpen} />
         : tab === "types" ? <TypesTab report={r} onPick={(ext) => { setKind(ext); setTab("largest"); }} />
-        : tab === "age" ? <AgeTab report={r} gone={gone} onGone={onGone} />
-        : <DupesTab report={r} gone={gone} onGone={onGone} />}
+        : tab === "age" ? <AgeTab report={r} gone={gone} onGone={onGone} onOpenFolder={onOpen} />
+        : <DupesTab report={r} gone={gone} onGone={onGone} onMenu={fileMenu} />}
       {menu && <ContextMenu x={menu.x} y={menu.y} items={menu.items} onClose={() => setMenu(null)} />}
       <ConfirmDialog state={confirm} onClose={() => setConfirm(null)} />
     </div>
