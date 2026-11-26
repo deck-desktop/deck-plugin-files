@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.7.0 (2026-11-26)
+
+- **Analyze sizes**: a disk-usage report for a folder or a drive. A treemap shows where the space
+  goes, with each folder's large files as blocks of their own and a label by the pointer with the
+  path, size and file count. Lists show the largest files and folders, the space by file type and
+  by age, and sort by any column. Every file has the usual right-click menu, and a delete updates
+  the totals without a rescan.
+- The report says which folders could not be read, and why. **Measure as administrator** counts
+  them after a Windows prompt.
+- Finding duplicates is faster. A first pass reads only the start and end of each file, and the list
+  of sets scrolls rather than squeezing each set's rows.
+- Needs Deck 1.19.1.
+
 ## 0.6.0 (2026-11-14)
 
 - Files dropped on a Claude chat in Deck go into its message box, and the pane under a drag is
